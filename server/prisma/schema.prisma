@@ -1,0 +1,629 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// Enums
+// ----------------------------------------------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  FINANCE_MAKER
+  FINANCE_APPROVER
+  VIEWER
+  AUDITOR
+}
+
+enum OrgType {
+  SCHOOL
+  HOSPITAL
+  COMPANY
+}
+
+enum KYBStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum PayeeKind {
+  EMPLOYEE
+  VENDOR
+  CONTRACTOR
+}
+
+enum PayComponentKind {
+  EARNING
+  DEDUCTION
+  EMPLOYER_CONTRIBUTION
+}
+
+enum LedgerAccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum BillStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  INITIATED
+  PROCESSING
+  SUCCESS
+  FAILED
+  ABANDONED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  FUNDS_RESERVED
+  PROCESSING
+  COMPLETED
+  PARTIALLY_FAILED
+  REJECTED
+  CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING
+  SENT
+  SUCCESS
+  FAILED
+  UNKNOWN
+}
+
+enum CrossBorderStatus {
+  QUOTED
+  APPROVED
+  CONVERTING
+  CONVERTED
+  PAYING_OUT
+  COMPLETED
+  QUOTE_EXPIRED
+  CONVERSION_FAILED
+  PAYOUT_FAILED_FUNDS_HELD
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ----------------------------------------------------
+// 1. Identity and Access
+// ----------------------------------------------------
+
+model Organization {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String
+  type         OrgType       @default(COMPANY)
+  baseCurrency String        @default("NGN") @db.VarChar(3)
+  country      String        @default("NG") @db.VarChar(2)
+  status       String        @default("ACTIVE")
+  kybStatus    KYBStatus     @default(NOT_STARTED)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  profile      OrgProfile?
+  memberships  Membership[]
+  policies     ApprovalPolicy[]
+  auditLogs    AuditLog[]
+  payees       Payee[]
+  payers       Payer[]
+  bills        Bill[]
+  payments     Payment[]
+  payrollRuns  PayrollRun[]
+  payouts      Payout[]
+  ledgerAccounts LedgerAccount[]
+  journalEntries JournalEntry[]
+  outboxItems  Outbox[]
+
+  @@map("organizations")
+}
+
+model OrgProfile {
+  id              String       @id @default(uuid()) @db.Uuid
+  orgId           String       @unique @db.Uuid
+  organization    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  terminology     Json         @default("{}")
+  billTemplates   Json         @default("{}")
+  dashboardLabels Json         @default("{}")
+
+  @@map("org_profiles")
+}
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String
+  mfaSecret    String?
+  status       String       @default("ACTIVE")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  memberships  Membership[]
+
+  @@map("users")
+}
+
+model Membership {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @db.Uuid
+  orgId        String       @db.Uuid
+  role         UserRole     @default(VIEWER)
+  createdAt    DateTime     @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@map("memberships")
+}
+
+model ApprovalPolicy {
+  id                String       @id @default(uuid()) @db.Uuid
+  orgId             String       @db.Uuid
+  actionType        String
+  thresholdMinor    BigInt       @default(0)
+  requiredApprovals Int          @default(1)
+  allowSelfApproval Boolean      @default(false)
+
+  organization      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, actionType])
+  @@map("approval_policies")
+}
+
+model ApprovalRequest {
+  id          String         @id @default(uuid()) @db.Uuid
+  orgId       String         @db.Uuid
+  actionType  String
+  subjectId   String
+  requestedBy String         @db.Uuid
+  status      ApprovalStatus @default(PENDING)
+  decidedBy   String?        @db.Uuid
+  decidedAt   DateTime?
+  reason      String?
+  createdAt   DateTime       @default(now())
+
+  @@index([orgId, status])
+  @@map("approval_requests")
+}
+
+model AuditLog {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  actorId     String?      @db.Uuid
+  action      String
+  subjectType String
+  subjectId   String
+  beforeJson  Json?
+  afterJson   Json?
+  ip          String?
+  createdAt   DateTime     @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, subjectType, subjectId])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------
+// 2. Parties
+// ----------------------------------------------------
+
+model Payee {
+  id               String        @id @default(uuid()) @db.Uuid
+  orgId            String        @db.Uuid
+  name             String
+  kind             PayeeKind     @default(EMPLOYEE)
+  country          String        @default("NG") @db.VarChar(2)
+  status           String        @default("ACTIVE")
+  department       String?
+  grossSalaryMinor BigInt?
+  payFrequency     String?       @default("MONTHLY")
+  taxProfile       Json?
+  startDate        DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organization     Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  bankAccounts     BankAccount[]
+  payouts          Payout[]
+
+  @@index([orgId, kind])
+  @@map("payees")
+}
+
+model BankAccount {
+  id                     String       @id @default(uuid()) @db.Uuid
+  orgId                  String       @db.Uuid
+  payeeId                String       @db.Uuid
+  bankCode               String
+  accountNumberEncrypted String       // KMS Envelope Encrypted
+  accountNameResolved    String
+  currency               String       @default("NGN") @db.VarChar(3)
+  verifiedAt             DateTime?
+
+  payee                  Payee        @relation(fields: [payeeId], references: [id], onDelete: Cascade)
+  payouts                Payout[]
+
+  @@index([orgId, payeeId])
+  @@map("bank_accounts")
+}
+
+model Payer {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  name        String
+  email       String
+  phone       String?
+  externalRef String?      // Student ID / Patient Ref / Customer ID
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  bills        Bill[]
+
+  @@index([orgId, email])
+  @@map("payers")
+}
+
+// ----------------------------------------------------
+// 3. Billing
+// ----------------------------------------------------
+
+model Bill {
+  id          String        @id @default(uuid()) @db.Uuid
+  orgId       String        @db.Uuid
+  payerId     String        @db.Uuid
+  reference   String        @unique
+  token       String        @unique @default(uuid()) // Unpredictable public checkout token
+  currency    String        @default("NGN") @db.VarChar(3)
+  totalMinor  BigInt
+  paidMinor   BigInt        @default(0)
+  dueDate     DateTime
+  status      BillStatus    @default(DRAFT)
+  version     Int           @default(1) // Optimistic locking
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  payer        Payer        @relation(fields: [payerId], references: [id], onDelete: Cascade)
+  items        BillItem[]
+  payments     Payment[]
+
+  @@index([orgId, status])
+  @@map("bills")
+}
+
+model BillItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  billId      String   @db.Uuid
+  label       String
+  amountMinor BigInt
+
+  bill        Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@map("bill_items")
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  orgId             String        @db.Uuid
+  billId            String        @db.Uuid
+  providerReference String        @unique
+  amountMinor       BigInt
+  currency          String        @default("NGN") @db.VarChar(3)
+  status            PaymentStatus @default(INITIATED)
+  channel           String?
+  paidAt            DateTime?
+  rawResponse       Json?
+  createdAt         DateTime      @default(now())
+
+  organization      Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  bill              Bill          @relation(fields: [billId], references: [id], onDelete: Cascade)
+  refunds           Refund[]
+
+  @@index([orgId, billId])
+  @@map("payments")
+}
+
+model Refund {
+  id                String       @id @default(uuid()) @db.Uuid
+  orgId             String       @db.Uuid
+  paymentId         String       @db.Uuid
+  amountMinor       BigInt
+  reason            String
+  status            String       @default("PENDING")
+  providerReference String?
+  approvedBy        String?      @db.Uuid
+  createdAt         DateTime     @default(now())
+
+  payment           Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
+}
+
+// ----------------------------------------------------
+// 4. Payroll
+// ----------------------------------------------------
+
+model PayComponent {
+  id          String           @id @default(uuid()) @db.Uuid
+  orgId       String           @db.Uuid
+  code        String
+  name        String
+  kind        PayComponentKind
+  calcRule    Json
+
+  @@unique([orgId, code])
+  @@map("pay_components")
+}
+
+model PayrollRun {
+  id              String           @id @default(uuid()) @db.Uuid
+  orgId           String           @db.Uuid
+  period          String           // "2026-10"
+  status          PayrollRunStatus @default(DRAFT)
+  grossMinor      BigInt           @default(0)
+  deductionsMinor BigInt           @default(0)
+  netMinor        BigInt           @default(0)
+  createdBy       String           @db.Uuid
+  approvedBy      String?          @db.Uuid
+  version         Int              @default(1) // Optimistic locking
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization    Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  items           PayrollItem[]
+
+  @@index([orgId, period])
+  @@map("payroll_runs")
+}
+
+model PayrollItem {
+  id          String       @id @default(uuid()) @db.Uuid
+  runId       String       @db.Uuid
+  employeeId  String       @db.Uuid
+  grossMinor  BigInt
+  netMinor    BigInt
+  linesJson   Json
+  payoutId    String?      @db.Uuid
+  status      String       @default("PENDING")
+
+  run         PayrollRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, employeeId])
+  @@map("payroll_items")
+}
+
+model Payslip {
+  id          String   @id @default(uuid()) @db.Uuid
+  itemId      String   @unique @db.Uuid
+  documentRef String
+  generatedAt DateTime @default(now())
+
+  @@map("payslips")
+}
+
+model Payout {
+  id                     String       @id @default(uuid()) @db.Uuid
+  orgId                  String       @db.Uuid
+  payeeId                String       @db.Uuid
+  bankAccountId          String       @db.Uuid
+  amountMinor            BigInt
+  currency               String       @default("NGN") @db.VarChar(3)
+  deterministicReference String       @unique // payout-<payoutId>
+  providerReference      String?
+  status                 PayoutStatus @default(PENDING)
+  failureReason          String?
+  attempts               Int          @default(0)
+  version                Int          @default(1)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  organization           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  payee                  Payee        @relation(fields: [payeeId], references: [id], onDelete: Cascade)
+  bankAccount            BankAccount  @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status])
+  @@map("payouts")
+}
+
+// ----------------------------------------------------
+// 5. Cross-Border
+// ----------------------------------------------------
+
+model FxQuote {
+  id               String       @id @default(uuid()) @db.Uuid
+  orgId            String       @db.Uuid
+  sourceCcy        String       @db.VarChar(3)
+  targetCcy        String       @db.VarChar(3)
+  rate             Float
+  sourceMinor      BigInt
+  targetMinor      BigInt
+  expiresAt        DateTime
+  providerQuoteRef String?
+  createdAt        DateTime     @default(now())
+
+  @@index([orgId, expiresAt])
+  @@map("fx_quotes")
+}
+
+model CrossBorderTransfer {
+  id            String            @id @default(uuid()) @db.Uuid
+  orgId         String            @db.Uuid
+  payeeId       String            @db.Uuid
+  quoteId       String            @db.Uuid
+  status        CrossBorderStatus @default(QUOTED)
+  conversionRef String?
+  payoutId      String?           @db.Uuid
+  purposeCode   String?
+  failureStage  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([orgId, status])
+  @@map("cross_border_transfers")
+}
+
+// ----------------------------------------------------
+// 6. Ledger (The Core Double-Entry System)
+// ----------------------------------------------------
+
+model LedgerAccount {
+  id        String            @id @default(uuid()) @db.Uuid
+  orgId     String            @db.Uuid
+  code      String
+  name      String
+  type      LedgerAccountType
+  currency  String            @default("NGN") @db.VarChar(3)
+  createdAt DateTime          @default(now())
+
+  organization Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  lines        LedgerLine[]
+
+  @@unique([orgId, code])
+  @@map("ledger_accounts")
+}
+
+model JournalEntry {
+  id             String        @id @default(uuid()) @db.Uuid
+  orgId          String        @db.Uuid
+  postedAt       DateTime      @default(now())
+  description    String
+  sourceType     String
+  sourceId       String
+  idempotencyKey String
+  currency       String        @default("NGN") @db.VarChar(3)
+  reversalOf     String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+
+  organization   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  lines          LedgerLine[]
+
+  @@unique([orgId, idempotencyKey])
+  @@index([orgId, postedAt])
+  @@map("journal_entries")
+}
+
+model LedgerLine {
+  id          String          @id @default(uuid()) @db.Uuid
+  entryId     String          @db.Uuid
+  accountId   String          @db.Uuid
+  direction   LedgerDirection
+  amountMinor BigInt
+
+  entry       JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account     LedgerAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([accountId])
+  @@map("ledger_lines")
+}
+
+// ----------------------------------------------------
+// 7. Infrastructure: Outbox, Webhooks, Idempotency, Reconciliation
+// ----------------------------------------------------
+
+model Outbox {
+  id            String       @id @default(uuid()) @db.Uuid
+  orgId         String       @db.Uuid
+  aggregateType String
+  aggregateId   String
+  type          String
+  payload       Json
+  status        String       @default("PENDING") // PENDING, SENT, FAILED
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("outbox")
+}
+
+model WebhookEvent {
+  id              String    @id @default(uuid()) @db.Uuid
+  provider        String    @default("KORA")
+  providerEventId String    @unique
+  type            String
+  rawBody         String
+  signatureValid  Boolean   @default(false)
+  status          String    @default("PENDING") // PENDING, PROCESSED, FAILED
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([status])
+  @@map("webhook_events")
+}
+
+model IdempotencyKey {
+  key              String
+  orgId            String   @db.Uuid
+  requestHash      String
+  responseSnapshot Json?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@id([orgId, key])
+  @@map("idempotency_keys")
+}
+
+model ReconciliationRun {
+  id        String                @id @default(uuid()) @db.Uuid
+  orgId     String                @db.Uuid
+  date      DateTime
+  status    String                @default("COMPLETED")
+  createdAt DateTime              @default(now())
+  breaks    ReconciliationBreak[]
+
+  @@index([orgId, date])
+  @@map("reconciliation_runs")
+}
+
+model ReconciliationBreak {
+  id             String            @id @default(uuid()) @db.Uuid
+  runId          String            @db.Uuid
+  kind           String
+  ourRef         String
+  providerRef    String?
+  deltaMinor     BigInt
+  status         String            @default("OPEN") // OPEN, RESOLVED
+  resolvedBy     String?           @db.Uuid
+  resolutionNote String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  run            ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, status])
+  @@map("reconciliation_breaks")
+}

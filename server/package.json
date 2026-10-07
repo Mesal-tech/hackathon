@@ -1,0 +1,33 @@
+{
+  "name": "hackathon-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production NestJS API, double-entry immutable ledger, BullMQ workers, and Kora gateway",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/**/*.test.mjs",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.7",
+    "@nestjs/core": "^11.2.7",
+    "@nestjs/platform-express": "^11.2.7",
+    "@prisma/client": "^6.4.1",
+    "bullmq": "^5.41.6",
+    "cron": "^3.5.0",
+    "ioredis": "^5.5.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.9",
+    "prisma": "^6.4.1",
+    "typescript": "^5.7.3"
+  }
+}

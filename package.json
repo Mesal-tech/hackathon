@@ -1,0 +1,24 @@
+{
+  "name": "hackathon-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enterprise financial platform with dedicated client (Next.js) and server (NestJS, Double-Entry Ledger, Kora) architecture",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev --workspace=hackathon-client",
+    "dev:server": "npm run start:dev --workspace=hackathon-server",
+    "build:client": "npm run build --workspace=hackathon-client",
+    "build:server": "npm run build --workspace=hackathon-server",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
