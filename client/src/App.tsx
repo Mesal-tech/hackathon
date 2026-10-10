@@ -1,20 +1,39 @@
-import React, { useState } from 'react';
-import {
-  ShieldCheck,
-  FileSpreadsheet,
-  Cpu,
-  Layers,
-  Sparkles,
-  Lock,
-  RefreshCw,
-  CreditCard,
-  Building2,
-  Users,
-  CheckCircle2,
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ShieldCheck, Cpu, Layers, Sparkles, Lock, RefreshCw } from 'lucide-react';
+import { api, IS_MOCK } from './api/client';
+import type { OrgMetrics } from './api/types';
+import { formatMoney } from './Format';
+import BillsPage from './BillsPage';
+import PayrollPage from './PayrollPage';
+import LedgerPage from './LedgerPage';
+import PayPage from './PayPage';
 
+/**
+ * Top-level switch: /pay/<token> is the public payment page (no dashboard, no tabs).
+ * Everything else is the organization dashboard.
+ */
 export default function App() {
+  const payMatch = window.location.pathname.match(/^\/pay\/([^/]+)/);
+  if (payMatch) return <PayPage token={payMatch[1]} />;
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'payroll' | 'billing'>('overview');
+  const [metrics, setMetrics] = useState<OrgMetrics | null>(null);
+
+  const loadMetrics = useCallback(() => {
+    api.getMetrics().then(setMetrics).catch(console.error);
+  }, []);
+
+  // Load once, then refresh every 3 seconds so the numbers move when money moves.
+  useEffect(() => {
+    loadMetrics();
+    const timer = setInterval(loadMetrics, 3000);
+    return () => clearInterval(timer);
+  }, [loadMetrics]);
+
+  const money = (minor: number | undefined) => (metrics && minor !== undefined ? formatMoney(minor, metrics.currency) : 'Loading…');
 
   return (
     <>
@@ -36,7 +55,11 @@ export default function App() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
               <span className="badge badge-emerald">React.js Client</span>
-              <span className="badge badge-cyan">Kora Connected</span>
+              {IS_MOCK ? (
+                <span className="badge badge-amber">Mock data</span>
+              ) : (
+                <span className="badge badge-cyan">Kora Connected</span>
+              )}
               <span className="badge badge-amber">PostgreSQL RLS</span>
             </div>
             <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>
@@ -48,7 +71,7 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn btn-secondary">
+            <button className="btn btn-secondary" onClick={loadMetrics}>
               <RefreshCw size={16} /> Reconcile
             </button>
             <button className="btn btn-primary">
@@ -76,7 +99,7 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Metrics Row */}
+        {/* Metrics Row (all three cards now come from the API) */}
         <section
           style={{
             display: 'grid',
@@ -91,23 +114,23 @@ export default function App() {
               <span className="badge badge-emerald">Balanced</span>
             </div>
             <div className="mono-figure" style={{ fontSize: '2rem', fontWeight: 700, color: '#34d399', marginBottom: '8px' }}>
-              ₦48,250,000.00
+              {money(metrics?.walletAssetMinor)}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              Derived from 1,420 immutable journal entries
+              Derived from {metrics ? metrics.journalEntryCount.toLocaleString() : '…'} immutable journal entries
             </p>
           </div>
 
           <div className="glass-panel" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>PAYROLL OUTBOX QUEUE</span>
-              <span className="badge badge-cyan">0 Pending</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>PAYROLL DISPATCHED</span>
+              <span className="badge badge-cyan">{metrics?.pendingOutbox ?? 0} Pending</span>
             </div>
             <div className="mono-figure" style={{ fontSize: '2rem', fontWeight: 700, color: '#38bdf8', marginBottom: '8px' }}>
-              ₦14,800,000.00
+              {money(metrics?.payrollDispatchedMinor)}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              Maker-Checker approved • Dispatched deterministically
+              Approved by a checker • Dispatched deterministically
             </p>
           </div>
 
@@ -117,7 +140,7 @@ export default function App() {
               <span className="badge badge-amber">Active</span>
             </div>
             <div className="mono-figure" style={{ fontSize: '2rem', fontWeight: 700, color: '#fbbf24', marginBottom: '8px' }}>
-              ₦92,410,500.00
+              {money(metrics?.collectionsMinor)}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
               Webhooks HMAC verified • Re-query confirmed
@@ -169,95 +192,19 @@ export default function App() {
               <div className="glass-panel" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                   <Lock size={20} color="#f59e0b" />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Maker-Checker Engine</h3>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Approval before payout</h3>
                 </div>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.5' }}>
-                  Policy evaluation requiring dual authorization for payroll execution, refunds, and bank modifications.
+                  Payroll never leaves the wallet until an approver confirms the run.
                 </p>
               </div>
             </div>
           </section>
         )}
 
-        {activeTab === 'ledger' && (
-          <section className="glass-panel" style={{ padding: '24px', marginBottom: '40px' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>Live Double-Entry Journal Entries</h2>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                  <th style={{ padding: '10px 0' }}>ENTRY ID</th>
-                  <th>DESCRIPTION</th>
-                  <th>SOURCE TYPE</th>
-                  <th>DEBIT ACCOUNT</th>
-                  <th>CREDIT ACCOUNT</th>
-                  <th style={{ textAlign: 'right' }}>AMOUNT</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td className="mono-figure" style={{ padding: '12px 0', color: '#38bdf8' }}>#JE-1094</td>
-                  <td>Oct 2026 Payroll Execution</td>
-                  <td><span className="badge badge-cyan">PAYROLL</span></td>
-                  <td>PAYROLL_EXPENSE</td>
-                  <td>KORA_WALLET</td>
-                  <td className="mono-figure" style={{ textAlign: 'right', fontWeight: 600 }}>₦14,800,000.00</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td className="mono-figure" style={{ padding: '12px 0', color: '#38bdf8' }}>#JE-1093</td>
-                  <td>Tuition Fee Bill Collection</td>
-                  <td><span className="badge badge-emerald">BILL_PAY</span></td>
-                  <td>KORA_CLEARING</td>
-                  <td>BILLING_INCOME</td>
-                  <td className="mono-figure" style={{ textAlign: 'right', fontWeight: 600 }}>₦750,000.00</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-        )}
-
-        {activeTab === 'payroll' && (
-          <section className="glass-panel" style={{ padding: '24px', marginBottom: '40px' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>Payroll Runs & Maker-Checker</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '10px' }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>Run #2026-10 (October 2026)</div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>42 Employees • PAYE, Pension, NHF Calculated</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <span className="mono-figure" style={{ fontWeight: 700 }}>₦14,800,000.00</span>
-                  <span className="badge badge-emerald">FUNDS RESERVED</span>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {activeTab === 'billing' && (
-          <section className="glass-panel" style={{ padding: '24px', marginBottom: '40px' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>Public Tokenized Bill Payment Portal</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
-              Bills are accessed via unguessable cryptographically secure tokens (/pay/[token]) with no payer PII leakage.
-            </p>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <input
-                type="text"
-                readOnly
-                value="https://pay.antigravity.io/pay/tok_8f93e2b104ad9871"
-                style={{
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                  padding: '10px 16px',
-                  borderRadius: '8px',
-                  fontFamily: 'var(--font-mono)',
-                  flex: 1,
-                }}
-              />
-              <button className="btn btn-primary">Open Public Pay Page</button>
-            </div>
-          </section>
-        )}
+        {activeTab === 'ledger' && <LedgerPage />}
+        {activeTab === 'payroll' && <PayrollPage />}
+        {activeTab === 'billing' && <BillsPage />}
 
         {/* Footer */}
         <footer
@@ -276,7 +223,7 @@ export default function App() {
           <div>Antigravity Platform • React.js SPA (Vite) + NestJS Server</div>
           <div style={{ display: 'flex', gap: '16px' }}>
             <span>PostgreSQL RLS</span>
-            <span>Redis BullMQ</span>
+            <span>Transactional outbox</span>
             <span>Kora Gateway</span>
           </div>
         </footer>
