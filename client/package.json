@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.10",
+    "@clerk/themes": "^2.4.57",
     "lucide-react": "^1.52.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

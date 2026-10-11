@@ -1,33 +1,31 @@
 :root {
-  /* Premium Fintech Slate / Emerald Palette */
-  --bg-primary: #090d16;
-  --bg-secondary: #0f172a;
-  --bg-tertiary: #1e293b;
-  --bg-card: rgba(15, 23, 42, 0.75);
-  --bg-card-hover: rgba(30, 41, 59, 0.85);
+  /* X-Flow Obsidian & Cyan Design System */
+  --bg-primary: #0d1017;
+  --bg-secondary: #13161f;
+  --bg-tertiary: #191c26;
+  --bg-card: #141720;
+  --bg-card-hover: #181c28;
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(16, 185, 129, 0.4);
+  --border-focus: rgba(56, 189, 248, 0.4);
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
-  --accent-emerald: #10b981;
-  --accent-emerald-glow: rgba(16, 185, 129, 0.25);
-  --accent-cyan: #06b6d4;
-  --accent-purple: #8b5cf6;
-  --accent-amber: #f59e0b;
-  --accent-rose: #f43f5e;
+  --accent-cyan: #38bdf8;
+  --accent-cyan-glow: rgba(56, 189, 248, 0.35);
+  --accent-cyan-subtle: #0284c7;
+  --accent-slate: #cbd5e1;
 
-  --gradient-brand: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #3b82f6 100%);
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --gradient-brand: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+  --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
   --radius-full: 9999px;
   --transition-smooth: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -40,8 +38,8 @@
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -58,42 +56,161 @@ body {
   pointer-events: none;
   z-index: 0;
   background: 
-    radial-gradient(circle 600px at 15% 20%, rgba(16, 185, 129, 0.08), transparent 70%),
-    radial-gradient(circle 500px at 85% 15%, rgba(6, 182, 212, 0.07), transparent 70%),
-    radial-gradient(circle 700px at 50% 80%, rgba(139, 92, 246, 0.05), transparent 70%);
+    radial-gradient(circle 700px at 20% 15%, rgba(2, 132, 199, 0.05), transparent 70%),
+    radial-gradient(circle 600px at 80% 20%, rgba(56, 189, 248, 0.04), transparent 70%),
+    radial-gradient(circle 800px at 50% 85%, rgba(13, 16, 23, 0.9), transparent 70%);
 }
 
 .container {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 0 24px;
   position: relative;
   z-index: 1;
 }
 
-/* Glassmorphism Card Utility */
+/* App Sidebar Layout */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  position: relative;
+  width: 100%;
+  align-items: flex-start;
+}
+
+.app-sidebar {
+  width: 270px;
+  background: #10131a;
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 18px;
+  position: sticky;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  z-index: 40;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.app-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.app-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.sidebar-nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.sidebar-nav-item.active {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(56, 189, 248, 0.12);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  padding: 32px 36px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    box-shadow: 12px 0 35px rgba(0, 0, 0, 0.6);
+  }
+
+  .app-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop.open {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    z-index: 35;
+  }
+
+  .app-main {
+    padding: 20px 16px;
+  }
+
+  .mobile-sidebar-toggle {
+    display: inline-flex !important;
+  }
+
+  .sidebar-close-btn {
+    display: inline-flex !important;
+  }
+}
+
+/* X-Flow Card Utility */
 .glass-panel {
   background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
   transition: var(--transition-smooth);
 }
 
 .glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.14);
   background: var(--bg-card-hover);
-  transform: translateY(-2px);
 }
 
 /* Typography Helpers */
 .title-gradient {
-  background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #ffffff;
   display: inline-block;
 }
 
@@ -103,35 +220,40 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Status Badges */
+/* Status Badges - Monochrome Obsidian & Cyan Only (No Green, Yellow, Purple) */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: var(--radius-full);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
 }
 
 .badge-emerald {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
 }
 
 .badge-amber {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .badge-cyan {
-  background: rgba(6, 182, 212, 0.12);
+  background: rgba(56, 189, 248, 0.1);
   color: #38bdf8;
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.badge-neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Buttons */
@@ -140,9 +262,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  padding: 10px 22px;
+  border-radius: var(--radius-full);
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -153,7 +275,7 @@ body {
 .btn-primary {
   background: var(--gradient-brand);
   color: #ffffff;
-  box-shadow: 0 4px 18px var(--accent-emerald-glow);
+  box-shadow: 0 4px 18px var(--accent-cyan-glow);
 }
 
 .btn-primary:hover {
@@ -162,12 +284,308 @@ body {
 }
 
 .btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
+  background: #191c26;
+  color: #cbd5e1;
+  border: 1px solid #282d3d;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: #222736;
   border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
+
+/* Form & Input Utilities - Matched to Onboarding Aesthetic */
+.label-obsidian {
+  display: block;
+  font-size: 0.82rem;
+  color: #8b94a7;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.input-obsidian {
+  width: 100%;
+  padding: 12px 16px;
+  background: #191c26;
+  border: 1px solid #282d3d;
+  border-radius: 12px;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.input-obsidian:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.input-obsidian::placeholder {
+  color: #64748b;
+}
+
+.select-obsidian {
+  width: 100%;
+  padding: 12px 40px 12px 16px;
+  background: #191c26;
+  border: 1px solid #282d3d;
+  border-radius: 12px;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  font-family: inherit;
+  appearance: none;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.select-obsidian:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+/* Table Utilities - Matched to Onboarding Aesthetic */
+.table-obsidian {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.table-obsidian th {
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8b94a7;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.table-obsidian td {
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  transition: background 0.15s ease;
+}
+
+.table-obsidian tbody tr:hover td {
+  background: rgba(56, 189, 248, 0.03);
+}
+
+/* =========================================================================
+   CLERK THEME STYLES - Matched to Dream-Work Obsidian & Cyan Aesthetic
+   ========================================================================= */
+.cl-rootBox,
+.cl-card,
+.cl-signIn-root,
+.cl-signUp-root {
+  font-family: var(--font-sans) !important;
+}
+
+.cl-card {
+  background: #141720 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65) !important;
+  border-radius: 24px !important;
+}
+
+.cl-modalBackdrop {
+  background-color: rgba(10, 13, 20, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+.cl-modalContent {
+  background: #141720 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 24px !important;
+}
+
+.cl-formButtonPrimary {
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%) !important;
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 4px 18px rgba(56, 189, 248, 0.4) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease !important;
+}
+
+.cl-formButtonPrimary:hover {
+  filter: brightness(1.1) !important;
+}
+
+.cl-formFieldInput {
+  background: #191c26 !important;
+  border: 1px solid #282d3d !important;
+  border-radius: 12px !important;
+  color: #f8fafc !important;
+}
+
+.cl-formFieldInput:focus {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25) !important;
+}
+
+.cl-userButtonPopoverCard {
+  background: #141720 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7) !important;
+}
+
+.cl-userButtonPopoverFooter {
+  display: none !important;
+}
+
+.cl-userButtonTrigger:focus {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.4) !important;
+}
+
+/* =========================================================================
+   DREAM-WORK RESPONSIVE ONBOARDING STYLES
+   ========================================================================= */
+.dreamwork-viewport {
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  background: #0d1017;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 20px;
+  box-sizing: border-box;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  position: relative;
+  overflow-y: auto;
+}
+
+.dreamwork-modal {
+  width: 100%;
+  max-width: 960px;
+  min-height: 560px;
+  background: #13161f;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+  display: grid;
+  grid-template-columns: 1.08fr 0.92fr;
+  overflow: hidden;
+  z-index: 1;
+  transition: all 0.3s ease;
+}
+
+.dreamwork-form-col {
+  background: #141720;
+  padding: 38px 46px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.dreamwork-heading {
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.25;
+  margin-bottom: 26px;
+  letter-spacing: -0.02em;
+}
+
+.dreamwork-showcase-col {
+  background: #12151e;
+  padding: 38px 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.dreamwork-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  padding: 12px 28px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(56, 189, 248, 0.45);
+  transition: all 0.2s ease;
+}
+
+.dreamwork-continue-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Tablet & Mobile Screens (<= 880px) */
+@media (max-width: 880px) {
+  .dreamwork-viewport {
+    padding: 20px 14px;
+    align-items: center;
+  }
+
+  .dreamwork-modal {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+    min-height: auto;
+    border-radius: 20px;
+  }
+
+  .dreamwork-showcase-col {
+    display: none;
+  }
+
+  .dreamwork-form-col {
+    padding: 30px 24px;
+  }
+
+  .dreamwork-heading {
+    font-size: 1.55rem;
+    margin-bottom: 20px;
+  }
+}
+
+/* Small Mobile Screens (<= 480px) */
+@media (max-width: 480px) {
+  .dreamwork-viewport {
+    padding: 12px 10px;
+    align-items: flex-start;
+  }
+
+  .dreamwork-modal {
+    border-radius: 18px;
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
+  }
+
+  .dreamwork-form-col {
+    padding: 24px 16px;
+  }
+
+  .dreamwork-heading {
+    font-size: 1.35rem;
+    line-height: 1.3;
+    margin-bottom: 18px;
+  }
+
+  .dreamwork-continue-btn {
+    width: 100%;
+    padding: 14px 20px;
+  }
+}
+
+
