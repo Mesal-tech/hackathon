@@ -43,6 +43,10 @@ interface JournalEntryLine {
   postedAt: string;
 }
 
+/**
+ * Top-level switch: /pay/<token> is the public payment page (no dashboard, no tabs).
+ * Everything else is the organization dashboard.
+ */
 export default function App() {
   const { user } = useUser();
 
