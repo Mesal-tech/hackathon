@@ -1,0 +1,79 @@
+{
+  "NNSS": [
+    {
+      "id": "emp_1791971815634_1",
+      "orgId": "NNSS",
+      "name": "Amina Yusuf",
+      "email": "amina.yusuf@school.edu.ng",
+      "department": "Academic Faculty",
+      "role": "Senior Mathematics Teacher",
+      "bankCode": "058",
+      "bankName": "Guaranty Trust Bank (GTBank)",
+      "accountNumber": "0123456789",
+      "salaryMinor": 35000000,
+      "currency": "NGN",
+      "status": "ACTIVE",
+      "joinedAt": "2024-09-01"
+    },
+    {
+      "id": "emp_1791971815634_2",
+      "orgId": "NNSS",
+      "name": "Tunde Bello",
+      "email": "tunde.bello@school.edu.ng",
+      "department": "Science & Practicals",
+      "role": "Science Laboratory Director",
+      "bankCode": "044",
+      "bankName": "Access Bank",
+      "accountNumber": "0234567891",
+      "salaryMinor": 28000000,
+      "currency": "NGN",
+      "status": "ACTIVE",
+      "joinedAt": "2025-01-15"
+    },
+    {
+      "id": "emp_1791971815634_3",
+      "orgId": "NNSS",
+      "name": "Chioma Okafor",
+      "email": "chioma.okafor@school.edu.ng",
+      "department": "Administration & Finance",
+      "role": "Campus Bursar & Accountant",
+      "bankCode": "057",
+      "bankName": "Zenith Bank",
+      "accountNumber": "0345678912",
+      "salaryMinor": 42000000,
+      "currency": "NGN",
+      "status": "ACTIVE",
+      "joinedAt": "2023-11-01"
+    },
+    {
+      "id": "emp_1791971815634_4",
+      "orgId": "NNSS",
+      "name": "Emeka Nwachukwu",
+      "email": "emeka.n@school.edu.ng",
+      "department": "Academic Faculty",
+      "role": "Literature & Arts Coordinator",
+      "bankCode": "011",
+      "bankName": "First Bank of Nigeria",
+      "accountNumber": "0456789123",
+      "salaryMinor": 32000000,
+      "currency": "NGN",
+      "status": "ACTIVE",
+      "joinedAt": "2025-03-01"
+    },
+    {
+      "id": "emp_1791971815634_5",
+      "orgId": "NNSS",
+      "name": "Fatima Garba",
+      "email": "fatima.g@school.edu.ng",
+      "department": "Campus Operations",
+      "role": "Facilities & Logistics Lead",
+      "bankCode": "090267",
+      "bankName": "Kuda Microfinance Bank",
+      "accountNumber": "0567891234",
+      "salaryMinor": 18000000,
+      "currency": "NGN",
+      "status": "ACTIVE",
+      "joinedAt": "2024-06-15"
+    }
+  ]
+}

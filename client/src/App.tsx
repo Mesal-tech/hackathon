@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SignedIn, SignedOut, SignIn, UserButton, useUser } from '@clerk/clerk-react';
 import {
   ShieldCheck,
@@ -26,11 +26,15 @@ import {
   ChevronDown,
   Menu,
   Receipt,
+  Banknote,
+  BarChart3,
 } from 'lucide-react';
 import { Onboarding } from './components/Onboarding';
 import { OrganizationDetails } from './components/OrganizationOnboarding';
 import { OrgSetup } from './components/OrgSetup';
 import { BillingManager } from './components/BillingManager';
+import { PayrollManager } from './components/PayrollManager';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { PublicPay } from './components/PublicPay';
 
 interface JournalEntryLine {
@@ -63,7 +67,14 @@ export default function App() {
     return null;
   });
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'billing' | 'org-setup'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'transactions' | 'billing' | 'payroll' | 'org-setup'>(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      if (window.location.hash.includes('organization') || window.location.hash.includes('org')) {
+        return 'org-setup';
+      }
+    }
+    return 'overview';
+  });
 
   // Dynamic Ledger State
   const [journalEntries, setJournalEntries] = useState<JournalEntryLine[]>([]);
@@ -81,8 +92,8 @@ export default function App() {
   const [newDesc, setNewDesc] = useState('');
   const [newAmount, setNewAmount] = useState('');
 
-  // Initial Sync from API if user is authenticated
-  useEffect(() => {
+  // Sync ledger entries from backend
+  const refreshLedger = useCallback(() => {
     if (!onboardingData) return;
 
     fetch('/api/v1/ledger/entries', {
@@ -100,6 +111,23 @@ export default function App() {
       .catch(() => { });
   }, [onboardingData]);
 
+  useEffect(() => {
+    refreshLedger();
+  }, [refreshLedger]);
+
+  // Sync on tab change
+  useEffect(() => {
+    if (activeTab === 'overview' || activeTab === 'transactions' || activeTab === 'analytics') {
+      refreshLedger();
+    }
+  }, [activeTab, refreshLedger]);
+
+  // Gentle live polling (every 5 seconds) so payments received via webhook/checkout reflect automatically
+  useEffect(() => {
+    const interval = setInterval(refreshLedger, 5000);
+    return () => clearInterval(interval);
+  }, [refreshLedger]);
+
   const handleOnboardingComplete = (details: OrganizationDetails) => {
     setOnboardingData(details);
     localStorage.setItem('antigravity_org_details', JSON.stringify(details));
@@ -107,9 +135,11 @@ export default function App() {
 
   const currentCurrencySymbol = onboardingData?.baseCurrency === 'USD' ? '$' : onboardingData?.baseCurrency === 'GBP' ? '£' : onboardingData?.baseCurrency === 'EUR' ? '€' : '₦';
 
-  const formatCurrency = (minorUnits: number) => {
-    const isNegative = minorUnits < 0;
-    const abs = Math.abs(minorUnits) / 100;
+  const formatCurrency = (minorUnits: number | undefined | null) => {
+    const num = Number(minorUnits);
+    const safe = Number.isFinite(num) ? num : 0;
+    const isNegative = safe < 0;
+    const abs = Math.abs(safe) / 100;
     return `${isNegative ? '-' : ''}${currentCurrencySymbol}${abs.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -123,11 +153,11 @@ export default function App() {
   }, 0);
 
   const totalInflowMinor = journalEntries
-    .filter((item) => item.debitAccount === 'KORA_WALLET' || item.sourceType === 'DEPOSIT')
+    .filter((item) => item.debitAccount === 'KORA_WALLET' || item.sourceType === 'DEPOSIT' || item.sourceType === 'BILL_PAY')
     .reduce((sum, item) => sum + item.amountMinor, 0);
 
   const totalOutflowMinor = journalEntries
-    .filter((item) => item.creditAccount === 'KORA_WALLET' || item.sourceType === 'TRANSFER' || item.sourceType === 'OPERATIONS')
+    .filter((item) => item.creditAccount === 'KORA_WALLET' || item.sourceType === 'TRANSFER' || item.sourceType === 'PAYROLL' || item.sourceType === 'OPERATIONS')
     .reduce((sum, item) => sum + item.amountMinor, 0);
 
   const handleReconcile = async () => {
@@ -216,8 +246,6 @@ export default function App() {
             position: 'relative',
           }}
         >
-          <div className="ambient-glow" />
-
           {/* Top Brand Banner */}
           <div style={{ textAlign: 'center', marginBottom: '28px', zIndex: 1 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
@@ -281,8 +309,10 @@ export default function App() {
                 <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {[
                     { id: 'overview', label: 'Dashboard', icon: <Layers size={16} /> },
+                    { id: 'analytics', label: 'Analytics & Insights', icon: <BarChart3 size={16} /> },
                     { id: 'transactions', label: 'Transactions', icon: <FileSpreadsheet size={16} /> },
                     { id: 'billing', label: 'Invoices & Billing', icon: <Receipt size={16} /> },
+                    { id: 'payroll', label: 'Payroll & Disbursals', icon: <Users size={16} /> },
                   ].map((item) => (
                     <button
                       key={item.id}
@@ -321,8 +351,6 @@ export default function App() {
 
             {/* Main Application Area */}
             <main className="app-main">
-              <div className="ambient-glow" />
-
               {/* Top Navigation Bar of Main Panel */}
               <div
                 style={{
@@ -359,12 +387,14 @@ export default function App() {
                       {activeTab === 'overview' && 'Dashboard'}
                       {activeTab === 'transactions' && 'Transactions'}
                       {activeTab === 'billing' && 'Invoices & Billing'}
+                      {activeTab === 'payroll' && 'Payroll & Disbursals'}
                       {activeTab === 'org-setup' && 'Organization Setup'}
                     </h1>
                     <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#8b94a7' }}>
                       {activeTab === 'overview' && `${onboardingData.name} • Financial Workspace`}
                       {activeTab === 'transactions' && `Wallet activity and transfer records (${onboardingData.baseCurrency})`}
                       {activeTab === 'billing' && `Dynamic fee catalogs, payer cohorts, and tokenized invoices`}
+                      {activeTab === 'payroll' && `Institutional salary disbursals, employee NUBAN accounts, and maker-checker sign-offs`}
                       {activeTab === 'org-setup' && `Manage ${onboardingData.name} legal profile, base currency, and treasury controls`}
                     </p>
                   </div>
@@ -505,6 +535,46 @@ export default function App() {
                     </button>
 
                     <button
+                      onClick={() => setActiveTab('payroll')}
+                      className="glass-panel"
+                      style={{
+                        padding: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        background: '#141720',
+                        border: '1px solid #282d3d',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '42px',
+                          height: '42px',
+                          borderRadius: '12px',
+                          background: 'rgba(56, 189, 248, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#38bdf8',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Banknote size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#f8fafc' }}>
+                          Run Payroll / Disburse
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#8b94a7', marginTop: '2px' }}>
+                          Salary batch or instant payee payout
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
                       onClick={() => setIsFundingWallet(true)}
                       className="glass-panel"
                       style={{
@@ -540,6 +610,46 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#8b94a7', marginTop: '2px' }}>
                           View account details for deposits
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveTab('analytics')}
+                      className="glass-panel"
+                      style={{
+                        padding: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        background: '#141720',
+                        border: '1px solid #282d3d',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '42px',
+                          height: '42px',
+                          borderRadius: '12px',
+                          background: 'rgba(56, 189, 248, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#38bdf8',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <BarChart3 size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#f8fafc' }}>
+                          Financial Analytics
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#8b94a7', marginTop: '2px' }}>
+                          Cash flow, cohort & payroll charts
                         </div>
                       </div>
                     </button>
@@ -643,6 +753,15 @@ export default function App() {
                 </div>
               )}
 
+              {/* Tab: Institutional Analytics & Insights */}
+              {activeTab === 'analytics' && (
+                <AnalyticsDashboard
+                  baseCurrency={onboardingData.baseCurrency}
+                  orgName={onboardingData.name}
+                  onNavigateToTab={setActiveTab}
+                />
+              )}
+
               {/* Tab 2: Transactions View */}
               {activeTab === 'transactions' && (
                 <div style={{ marginBottom: '40px' }}>
@@ -722,186 +841,151 @@ export default function App() {
                 <BillingManager
                   baseCurrency={onboardingData.baseCurrency}
                   orgName={onboardingData.name}
+                  onPaymentCompleted={refreshLedger}
                 />
               )}
 
-              {/* Tab 4: Organization Setup */}
+              {/* Tab 4: Institutional Payroll & Disbursals */}
+              {activeTab === 'payroll' && (
+                <PayrollManager
+                  baseCurrency={onboardingData.baseCurrency}
+                  orgName={onboardingData.name}
+                  onDisbursementCompleted={refreshLedger}
+                />
+              )}
+
+              {/* Tab 5: Organization Setup */}
               {activeTab === 'org-setup' && (
                 <OrgSetup onboardingData={onboardingData} onUpdate={handleOnboardingComplete} />
               )}
 
               {/* Send Money Modal */}
               {isAddingEntry && (
-                <div
-                  style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'rgba(0, 0, 0, 0.75)',
-                    backdropFilter: 'blur(8px)',
-                    zIndex: 90,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '20px',
-                  }}
-                  onClick={() => setIsAddingEntry(false)}
-                >
-                  <form
-                    onSubmit={handleCreateEntry}
+                <div className="modal-backdrop" onClick={() => setIsAddingEntry(false)}>
+                  <div
+                    className="modal-container"
+                    style={{ maxWidth: '480px' }}
                     onClick={(e) => e.stopPropagation()}
-                    style={{
-                      background: '#141720',
-                      padding: '28px',
-                      borderRadius: '20px',
-                      border: '1px solid #282d3d',
-                      width: '100%',
-                      maxWidth: '480px',
-                      boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)',
-                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div className="modal-header">
                       <div>
-                        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                          Send Money / Transfer
-                        </h3>
-                        <p style={{ fontSize: '0.82rem', color: '#8b94a7', marginTop: '4px' }}>
+                        <h3 className="modal-header-title">Send Money / Transfer</h3>
+                        <p className="modal-header-subtitle">
                           Transfer funds directly from your {onboardingData.baseCurrency} wallet
                         </p>
                       </div>
                       <button
                         type="button"
+                        className="modal-close-btn"
                         onClick={() => setIsAddingEntry(false)}
-                        style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer', padding: 4 }}
                         title="Close"
                       >
-                        <X size={18} />
+                        <X size={16} />
                       </button>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                      <div>
-                        <label className="label-obsidian">Recipient / Narration</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Supplier Payment or Employee Salary"
-                          value={newDesc}
-                          onChange={(e) => setNewDesc(e.target.value)}
-                          className="input-obsidian"
-                        />
+                    <form onSubmit={handleCreateEntry} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                      <div className="modal-body">
+                        <div>
+                          <label className="label-obsidian">Recipient / Narration</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Supplier Payment or Employee Salary"
+                            value={newDesc}
+                            onChange={(e) => setNewDesc(e.target.value)}
+                            className="input-obsidian"
+                          />
+                        </div>
+                        <div>
+                          <label className="label-obsidian">Amount ({onboardingData.baseCurrency})</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            placeholder="50000.00"
+                            value={newAmount}
+                            onChange={(e) => setNewAmount(e.target.value)}
+                            className="input-obsidian mono-figure"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="label-obsidian">Amount ({onboardingData.baseCurrency})</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          placeholder="50000.00"
-                          value={newAmount}
-                          onChange={(e) => setNewAmount(e.target.value)}
-                          className="input-obsidian mono-figure"
-                        />
-                      </div>
-                    </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                      <button type="button" className="btn btn-secondary" onClick={() => setIsAddingEntry(false)}>
-                        Cancel
-                      </button>
-                      <button type="submit" className="btn btn-primary">
-                        Send Payout
-                      </button>
-                    </div>
-                  </form>
+                      <div className="modal-footer">
+                        <button type="button" className="btn btn-secondary" onClick={() => setIsAddingEntry(false)}>
+                          Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary">
+                          Send Payout
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               )}
 
               {/* Fund Wallet Modal */}
               {isFundingWallet && (
-                <div
-                  style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'rgba(0, 0, 0, 0.75)',
-                    backdropFilter: 'blur(8px)',
-                    zIndex: 90,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '20px',
-                  }}
-                  onClick={() => setIsFundingWallet(false)}
-                >
+                <div className="modal-backdrop" onClick={() => setIsFundingWallet(false)}>
                   <div
+                    className="modal-container"
+                    style={{ maxWidth: '460px' }}
                     onClick={(e) => e.stopPropagation()}
-                    style={{
-                      background: '#141720',
-                      padding: '28px',
-                      borderRadius: '20px',
-                      border: '1px solid #282d3d',
-                      width: '100%',
-                      maxWidth: '460px',
-                      boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)',
-                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div className="modal-header">
                       <div>
-                        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                          Fund Wallet
-                        </h3>
-                        <p style={{ fontSize: '0.82rem', color: '#8b94a7', marginTop: '4px' }}>
+                        <h3 className="modal-header-title">Fund Wallet</h3>
+                        <p className="modal-header-subtitle">
                           Transfer to your dedicated Kora account to fund instantly
                         </p>
                       </div>
                       <button
                         type="button"
+                        className="modal-close-btn"
                         onClick={() => setIsFundingWallet(false)}
-                        style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer', padding: 4 }}
                         title="Close"
                       >
-                        <X size={18} />
+                        <X size={16} />
                       </button>
                     </div>
 
-                    <div style={{ background: '#191c26', borderRadius: '14px', border: '1px solid #282d3d', padding: '18px', marginBottom: '20px' }}>
-                      <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Bank Name</div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', marginBottom: '14px' }}>Kora / Wema Bank</div>
+                    <div className="modal-body">
+                      <div style={{ background: '#191c26', borderRadius: '14px', border: '1px solid #282d3d', padding: '18px' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Bank Name</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', marginBottom: '14px' }}>Kora / Wema Bank</div>
 
-                      <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Account Number</div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                        <span className="mono-figure" style={{ fontSize: '1.25rem', fontWeight: 700, color: '#38bdf8' }}>
-                          {onboardingData.accountNumber || '8920194821'}
-                        </span>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-                          onClick={() => {
-                            navigator.clipboard.writeText(onboardingData.accountNumber || '8920194821');
-                            setReconcileStatus('Account number copied to clipboard');
-                            setTimeout(() => setReconcileStatus(null), 3000);
-                          }}
-                        >
-                          <Copy size={13} /> Copy
-                        </button>
+                        <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Account Number</div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                          <span className="mono-figure" style={{ fontSize: '1.25rem', fontWeight: 700, color: '#38bdf8' }}>
+                            {onboardingData.accountNumber || '8920194821'}
+                          </span>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(onboardingData.accountNumber || '8920194821');
+                              setReconcileStatus('Account number copied to clipboard');
+                              setTimeout(() => setReconcileStatus(null), 3000);
+                            }}
+                          >
+                            <Copy size={13} /> Copy
+                          </button>
+                        </div>
+
+                        <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Account Name</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc' }}>{onboardingData.name}</div>
                       </div>
-
-                      <div style={{ fontSize: '0.75rem', color: '#8b94a7', marginBottom: '4px' }}>Account Name</div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc' }}>{onboardingData.name}</div>
                     </div>
 
-                    <button
-                      className="btn btn-primary"
-                      style={{ width: '100%', justifyContent: 'center' }}
-                      onClick={() => setIsFundingWallet(false)}
-                    >
-                      Done
-                    </button>
+                    <div className="modal-footer">
+                      <button
+                        className="btn btn-primary"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        onClick={() => setIsFundingWallet(false)}
+                      >
+                        Done
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -923,10 +1007,6 @@ export default function App() {
               >
                 <div>
                   <strong style={{ color: '#cbd5e1' }}>X-Flow</strong> • {onboardingData.name}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />
-                  <span>Systems operational</span>
                 </div>
               </footer>
             </main>

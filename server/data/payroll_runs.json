@@ -1,0 +1,65 @@
+{
+  "NNSS": [
+    {
+      "id": "RUN-2026-09",
+      "orgId": "NNSS",
+      "period": "September 2026",
+      "department": "All Departments",
+      "employeeCount": 5,
+      "amountMinor": 155000000,
+      "currency": "NGN",
+      "status": "COMPLETED",
+      "createdAt": "2026-09-14T09:56:55.634Z",
+      "approvedAt": "2026-09-15T09:56:55.634Z",
+      "completedAt": "2026-09-16T09:56:55.634Z",
+      "disbursementRef": "kora_payout_seed_1791971815634",
+      "lines": [
+        {
+          "employeeId": "emp_1791971815634_1",
+          "employeeName": "Amina Yusuf",
+          "department": "Academic Faculty",
+          "bankName": "Guaranty Trust Bank (GTBank)",
+          "accountNumber": "0123456789",
+          "amountMinor": 35000000,
+          "status": "DISBURSED"
+        },
+        {
+          "employeeId": "emp_1791971815634_2",
+          "employeeName": "Tunde Bello",
+          "department": "Science & Practicals",
+          "bankName": "Access Bank",
+          "accountNumber": "0234567891",
+          "amountMinor": 28000000,
+          "status": "DISBURSED"
+        },
+        {
+          "employeeId": "emp_1791971815634_3",
+          "employeeName": "Chioma Okafor",
+          "department": "Administration & Finance",
+          "bankName": "Zenith Bank",
+          "accountNumber": "0345678912",
+          "amountMinor": 42000000,
+          "status": "DISBURSED"
+        },
+        {
+          "employeeId": "emp_1791971815634_4",
+          "employeeName": "Emeka Nwachukwu",
+          "department": "Academic Faculty",
+          "bankName": "First Bank of Nigeria",
+          "accountNumber": "0456789123",
+          "amountMinor": 32000000,
+          "status": "DISBURSED"
+        },
+        {
+          "employeeId": "emp_1791971815634_5",
+          "employeeName": "Fatima Garba",
+          "department": "Campus Operations",
+          "bankName": "Kuda Microfinance Bank",
+          "accountNumber": "0567891234",
+          "amountMinor": 18000000,
+          "status": "DISBURSED"
+        }
+      ]
+    }
+  ]
+}

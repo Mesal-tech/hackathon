@@ -19,6 +19,8 @@ import { Public } from '../../common/decorators/public.decorator.js';
 import { BillStatus, PaymentStatus, SupportedCurrency } from '../../shared/index.js';
 import { KoraGateway } from '../../gateway/index.js';
 import { invoiceNotificationService } from './invoice-notification.service.js';
+import { LedgerService } from '../ledger/ledger.service.js';
+import { loadPersistedMap, savePersistedMap } from '../../common/persistence.js';
 
 export interface PayerGroup {
   id: string;
@@ -81,12 +83,19 @@ export interface OrgKoraConfig {
   webhookSecret?: string;
 }
 
-// In-memory tenant isolated stores
-const orgGroupsStore = new Map<string, PayerGroup[]>();
-const orgItemsStore = new Map<string, BillingItem[]>();
-const orgPayersStore = new Map<string, Payer[]>();
-const orgBillsStore = new Map<string, Bill[]>();
+// Tenant isolated persistent stores
+const orgGroupsStore = loadPersistedMap<PayerGroup>('billing_groups.json');
+const orgItemsStore = loadPersistedMap<BillingItem>('billing_items.json');
+const orgPayersStore = loadPersistedMap<Payer>('billing_payers.json');
+const orgBillsStore = loadPersistedMap<Bill>('billing_bills.json');
 const orgKoraConfigStore = new Map<string, OrgKoraConfig>();
+
+export function saveBillingState() {
+  savePersistedMap('billing_groups.json', orgGroupsStore);
+  savePersistedMap('billing_items.json', orgItemsStore);
+  savePersistedMap('billing_payers.json', orgPayersStore);
+  savePersistedMap('billing_bills.json', orgBillsStore);
+}
 
 // Initialize default seed data for an org based on preset
 function seedOrgData(orgId: string, template: 'SCHOOL' | 'HOSPITAL' | 'COMPANY' | 'EMPTY' = 'SCHOOL') {
@@ -201,12 +210,33 @@ function seedOrgData(orgId: string, template: 'SCHOOL' | 'HOSPITAL' | 'COMPANY' 
     orgPayersStore.set(orgId, []);
     orgBillsStore.set(orgId, []);
   }
+  saveBillingState();
 }
 
 @Controller()
 export class BillingController {
+  constructor(private readonly ledgerService: LedgerService) {}
+
   private getOrgId(user: ClerkUserContext, headerOrgId?: string): string {
     return headerOrgId || user?.orgId || user?.userId || 'default-org';
+  }
+
+  private recordInvoiceSettlement(bill: Bill, source: string) {
+    try {
+      this.ledgerService.postJournalEntry({
+        orgId: bill.orgId,
+        description: `Invoice Settlement (${source}): ${bill.payerName} #${bill.id}`,
+        sourceType: 'BILL_PAY',
+        sourceId: bill.id,
+        debitAccount: 'KORA_WALLET',
+        creditAccount: 'BILLING_INCOME',
+        amountMinor: bill.totalAmountMinor,
+        currency: bill.currency || 'NGN',
+      });
+      saveBillingState();
+    } catch (err: any) {
+      console.error(`[Billing] Failed to post ledger entry for ${bill.id}:`, err.message);
+    }
   }
 
   // Get full billing configuration (groups, fee items catalog, and payers)
@@ -281,6 +311,7 @@ export class BillingController {
       }
       orgItemsStore.set(orgId, items);
     }
+    saveBillingState();
 
     return { success: true, group: newGroup };
   }
@@ -316,6 +347,7 @@ export class BillingController {
     }
     orgItemsStore.set(orgId, items);
     orgGroupsStore.set(orgId, groups);
+    saveBillingState();
 
     return { success: true, group, items };
   }
@@ -449,6 +481,9 @@ export class BillingController {
     @Headers('x-org-id') headerOrgId?: string
   ) {
     const orgId = this.getOrgId(user, headerOrgId);
+    if (!orgGroupsStore.has(orgId)) {
+      seedOrgData(orgId, 'SCHOOL');
+    }
     if (!dto.name || !dto.identifier) {
       throw new BadRequestException('Payer name and identifier are required');
     }
@@ -467,6 +502,83 @@ export class BillingController {
     orgPayersStore.set(orgId, payers);
 
     return { success: true, payer: newPayer };
+  }
+
+  @Post('billing/payers/bulk')
+  @UseGuards(ClerkAuthGuard)
+  createPayersBulk(
+    @CurrentUser() user: ClerkUserContext,
+    @Body()
+    dto: {
+      payers: Array<{
+        name: string;
+        identifier?: string;
+        groupId?: string;
+        groupName?: string;
+        email?: string;
+        phone?: string;
+      }>;
+      defaultGroupId?: string;
+    },
+    @Headers('x-org-id') headerOrgId?: string
+  ) {
+    const orgId = this.getOrgId(user, headerOrgId);
+    if (!orgGroupsStore.has(orgId)) {
+      seedOrgData(orgId, 'SCHOOL');
+    }
+    if (!dto.payers || !Array.isArray(dto.payers) || dto.payers.length === 0) {
+      throw new BadRequestException('At least one payer record is required');
+    }
+
+    const payers = orgPayersStore.get(orgId) || [];
+    const groups = orgGroupsStore.get(orgId) || [];
+
+    const createdPayers: Payer[] = [];
+
+    for (let i = 0; i < dto.payers.length; i++) {
+      const row = dto.payers[i];
+      if (!row.name || !row.name.trim()) continue;
+
+      // Resolve group
+      let matchedGroupId = row.groupId;
+      if (!matchedGroupId && row.groupName) {
+        const found = groups.find(
+          (g) =>
+            g.name.toLowerCase() === row.groupName!.trim().toLowerCase() ||
+            (g.code && g.code.toLowerCase() === row.groupName!.trim().toLowerCase())
+        );
+        if (found) {
+          matchedGroupId = found.id;
+        }
+      }
+
+      if (!matchedGroupId) {
+        matchedGroupId = dto.defaultGroupId || groups[0]?.id || 'default_group';
+      }
+
+      // Resolve identifier
+      const identifier = row.identifier?.trim() || `ID-${Date.now().toString().slice(-4)}-${i + 1}`;
+
+      const newPayer: Payer = {
+        id: `pyr_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+        name: row.name.trim(),
+        identifier,
+        groupId: matchedGroupId,
+        email: row.email?.trim() || undefined,
+        phone: row.phone?.trim() || undefined,
+      };
+
+      payers.push(newPayer);
+      createdPayers.push(newPayer);
+    }
+
+    orgPayersStore.set(orgId, payers);
+
+    return {
+      success: true,
+      count: createdPayers.length,
+      payers: createdPayers,
+    };
   }
 
   @Delete('billing/payers/:id')
@@ -494,9 +606,23 @@ export class BillingController {
       seedOrgData(orgId, 'SCHOOL');
     }
     const bills = orgBillsStore.get(orgId) || [];
+    const totalInvoicedMinor = bills.reduce((sum, b) => sum + (b.totalAmountMinor || 0), 0);
+    const totalCollectedMinor = bills
+      .filter((b) => b.status === BillStatus.PAID)
+      .reduce((sum, b) => sum + (b.totalAmountMinor || 0), 0);
+    const pendingMinor = totalInvoicedMinor - totalCollectedMinor;
+    const paidCount = bills.filter((b) => b.status === BillStatus.PAID).length;
+
     return {
       bills,
       totalCount: bills.length,
+      paidCount,
+      pendingCount: bills.length - paidCount,
+      metrics: {
+        totalInvoicedMinor,
+        totalCollectedMinor,
+        pendingMinor,
+      },
       orgId,
     };
   }
@@ -558,6 +684,7 @@ export class BillingController {
     const bills = orgBillsStore.get(orgId) || [];
     bills.unshift(newBill);
     orgBillsStore.set(orgId, bills);
+    saveBillingState();
 
     return {
       success: true,
@@ -649,6 +776,7 @@ export class BillingController {
 
     const updatedBills = [...generatedBills, ...existingBills];
     orgBillsStore.set(orgId, updatedBills);
+    saveBillingState();
 
     return {
       success: true,
@@ -670,8 +798,11 @@ export class BillingController {
     const bill = bills.find((b) => b.id === billId);
     if (!bill) throw new NotFoundException('Bill not found');
 
-    bill.status = BillStatus.PAID;
-    bill.paidAt = new Date().toISOString();
+    if (bill.status !== BillStatus.PAID) {
+      bill.status = BillStatus.PAID;
+      bill.paidAt = new Date().toISOString();
+      this.recordInvoiceSettlement(bill, 'Admin Action');
+    }
 
     return {
       success: true,
@@ -919,8 +1050,14 @@ export class BillingController {
       throw new NotFoundException('Payment token invalid or expired');
     }
 
+    const formatPublicBill = (b: Bill) => ({
+      ...b,
+      amountMinor: b.totalAmountMinor,
+      totalAmountMinor: b.totalAmountMinor,
+    });
+
     if (matchedBill.status === BillStatus.PAID) {
-      return { success: true, status: 'PAID', bill: matchedBill };
+      return { success: true, status: 'PAID', bill: formatPublicBill(matchedBill) };
     }
 
     const ref = reference || matchedBill.koraReference;
@@ -935,7 +1072,8 @@ export class BillingController {
         if (charge.status === PaymentStatus.SUCCESS) {
           matchedBill.status = BillStatus.PAID;
           matchedBill.paidAt = (charge.paidAt || new Date()).toISOString();
-          return { success: true, status: 'PAID', bill: matchedBill };
+          this.recordInvoiceSettlement(matchedBill, 'Kora Return');
+          return { success: true, status: 'PAID', bill: formatPublicBill(matchedBill) };
         }
       } catch (err: any) {
         console.warn('[KoraGateway] Verification query failed:', err.message);
@@ -943,13 +1081,14 @@ export class BillingController {
     } else if (ref && ref.startsWith('inv_demo_')) {
       matchedBill.status = BillStatus.PAID;
       matchedBill.paidAt = new Date().toISOString();
-      return { success: true, status: 'PAID', bill: matchedBill };
+      this.recordInvoiceSettlement(matchedBill, 'Sandbox Demo');
+      return { success: true, status: 'PAID', bill: formatPublicBill(matchedBill) };
     }
 
     return {
       success: false,
       status: matchedBill.status,
-      bill: matchedBill,
+      bill: formatPublicBill(matchedBill),
     };
   }
 
@@ -974,8 +1113,11 @@ export class BillingController {
       }
 
       if (targetBill) {
-        targetBill.status = BillStatus.PAID;
-        targetBill.paidAt = new Date().toISOString();
+        if (targetBill.status !== BillStatus.PAID) {
+          targetBill.status = BillStatus.PAID;
+          targetBill.paidAt = new Date().toISOString();
+          this.recordInvoiceSettlement(targetBill, 'Kora Webhook');
+        }
         console.log(`[KoraWebhook] Invoice settled via Kora webhook: ${targetBill.token} (${targetBill.payerName})`);
       }
     }
@@ -1010,13 +1152,22 @@ export class BillingController {
       throw new NotFoundException('Payment token invalid or expired');
     }
 
-    matchedBill.status = BillStatus.PAID;
-    matchedBill.paidAt = new Date().toISOString();
+    if (matchedBill.status !== BillStatus.PAID) {
+      matchedBill.status = BillStatus.PAID;
+      matchedBill.paidAt = new Date().toISOString();
+      this.recordInvoiceSettlement(matchedBill, 'Portal Pay');
+    }
+
+    const formatPublicBill = (b: Bill) => ({
+      ...b,
+      amountMinor: b.totalAmountMinor,
+      totalAmountMinor: b.totalAmountMinor,
+    });
 
     return {
       success: true,
       message: 'Payment processed and settled successfully',
-      bill: matchedBill,
+      bill: formatPublicBill(matchedBill),
     };
   }
 }

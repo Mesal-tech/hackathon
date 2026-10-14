@@ -1,0 +1,50 @@
+{
+  "NNSS": [
+    {
+      "id": "grp_grade_1",
+      "name": "Grade 1",
+      "code": "G1",
+      "description": "Elementary first grade",
+      "linkedItemIds": [
+        "item_tuition",
+        "item_books",
+        "item_bus"
+      ],
+      "customItemPrices": {
+        "item_tuition": 12000000,
+        "item_books": 1800000,
+        "item_bus": 3500000
+      }
+    },
+    {
+      "id": "grp_grade_2",
+      "name": "Grade 2",
+      "code": "G2",
+      "description": "Elementary second grade",
+      "linkedItemIds": [
+        "item_tuition",
+        "item_practical",
+        "item_bus"
+      ],
+      "customItemPrices": {
+        "item_tuition": 15000000,
+        "item_practical": 2500000,
+        "item_bus": 3500000
+      }
+    },
+    {
+      "id": "grp_grade_3",
+      "name": "Grade 3",
+      "code": "G3",
+      "description": "Elementary third grade",
+      "linkedItemIds": [
+        "item_tuition",
+        "item_practical"
+      ],
+      "customItemPrices": {
+        "item_tuition": 18000000,
+        "item_practical": 3000000
+      }
+    }
+  ]
+}

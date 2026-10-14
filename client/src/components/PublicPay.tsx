@@ -31,7 +31,8 @@ interface PublicBillData {
   payerEmail?: string;
   groupName?: string;
   items: BillItemLine[];
-  amountMinor: number;
+  amountMinor?: number;
+  totalAmountMinor?: number;
   currency: string;
   dueDate: string;
   status: 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED';
@@ -161,10 +162,12 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
     }
   };
 
-  const formatCurrency = (minor: number, currency: string = 'NGN') => {
-    const major = minor / 100;
-    const symbol = currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency === 'GBP' ? '£' : '€';
-    return `${symbol}${major.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatCurrency = (minor: number | undefined | null, currency: string = 'NGN') => {
+    const num = Number(minor);
+    const safeMinor = typeof num === 'number' && Number.isFinite(num) && !isNaN(num) ? num : 0;
+    const major = safeMinor / 100;
+    const symbol = currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : '₦';
+    return `${symbol}${major.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const copyToken = () => {
@@ -207,6 +210,15 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
 
   const isPaid = bill.status === 'PAID' || paymentSuccess;
 
+  const resolvedTotalMinor =
+    bill.totalAmountMinor !== undefined && bill.totalAmountMinor !== null && !isNaN(Number(bill.totalAmountMinor))
+      ? Number(bill.totalAmountMinor)
+      : bill.amountMinor !== undefined && bill.amountMinor !== null && !isNaN(Number(bill.amountMinor))
+      ? Number(bill.amountMinor)
+      : bill.items && Array.isArray(bill.items)
+      ? bill.items.reduce((sum, item) => sum + (Number(item.amountMinor) || 0), 0)
+      : 0;
+
   return (
     <div style={{ minHeight: '100vh', background: '#0a0d14', color: '#f8fafc', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       {/* Container */}
@@ -225,10 +237,6 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
                 Secure Payment Portal
               </span>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.08)', padding: '4px 10px', borderRadius: '999px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-            <ShieldCheck size={14} />
-            <span>Korapay Verified</span>
           </div>
         </div>
 
@@ -340,7 +348,7 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '0.86rem', color: '#8b94a7' }}>
                 <span>Subtotal</span>
                 <span style={{ fontFamily: 'monospace', color: '#f8fafc' }}>
-                  {formatCurrency(bill.amountMinor, bill.currency)}
+                  {formatCurrency(resolvedTotalMinor, bill.currency)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px', fontSize: '0.86rem', color: '#8b94a7' }}>
@@ -355,7 +363,7 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
                   Total Amount Due
                 </span>
                 <span style={{ fontSize: '1.4rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'monospace' }}>
-                  {formatCurrency(bill.amountMinor, bill.currency)}
+                  {formatCurrency(resolvedTotalMinor, bill.currency)}
                 </span>
               </div>
             </div>
@@ -378,7 +386,7 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
                   Payment Settled Successfully
                 </h4>
                 <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 12px', lineHeight: 1.5 }}>
-                  This bill was verified and settled via Korapay on {bill.paidAt ? new Date(bill.paidAt).toLocaleDateString() : 'today'}. A transaction record has been reconciled into the double-entry immutable ledger.
+                  This bill was verified and settled via Korapay on {bill.paidAt ? new Date(bill.paidAt).toLocaleDateString() : 'today'}.
                 </p>
 
                 {(activeReference || bill.koraReference) && (
@@ -402,32 +410,6 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
             ) : (
               /* State: Ready to Pay with Korapay */
               <div>
-                <div
-                  style={{
-                    padding: '20px',
-                    borderRadius: '16px',
-                    background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%)',
-                    border: '1px solid rgba(56, 189, 248, 0.3)',
-                    marginBottom: '20px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                        <CreditCard size={20} />
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.94rem', color: '#f8fafc' }}>Korapay Checkout</div>
-                        <div style={{ fontSize: '0.76rem', color: '#8b94a7' }}>Cards, Bank Transfer, USSD & Virtual Accounts</div>
-                      </div>
-                    </div>
-                    <span className="badge badge-cyan" style={{ fontSize: '0.72rem' }}>PCI-DSS Certified</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>
-                    Instant automated reconciliation. Your payment will be confirmed and an official receipt issued immediately.
-                  </p>
-                </div>
-
                 <button
                   type="button"
                   onClick={handleKoraCheckout}
@@ -442,7 +424,7 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '10px',
-                    boxShadow: '0 8px 24px rgba(56, 189, 248, 0.3)',
+                    boxShadow: 'none',
                   }}
                 >
                   {isProcessing ? (
@@ -453,14 +435,14 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
                   ) : (
                     <>
                       <Lock size={16} />
-                      <span>Pay {formatCurrency(bill.amountMinor, bill.currency)} with Korapay</span>
+                      <span>Pay {formatCurrency(resolvedTotalMinor, bill.currency)}</span>
                       <ArrowRight size={18} />
                     </>
                   )}
                 </button>
 
                 <p style={{ textAlign: 'center', fontSize: '0.76rem', color: '#64748b', marginTop: '14px' }}>
-                  Secured by Korapay end-to-end 256-bit encryption. Handled via automated double-entry ledger settlement.
+                  Secured by Korapay.
                 </p>
               </div>
             )}
@@ -491,7 +473,7 @@ export const PublicPay: React.FC<PublicPayProps> = ({ token }) => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.84rem' }}>
                 <span style={{ color: '#8b94a7' }}>Amount:</span>
-                <span style={{ color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace' }}>{formatCurrency(bill.amountMinor, bill.currency)}</span>
+                <span style={{ color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace' }}>{formatCurrency(resolvedTotalMinor, bill.currency)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem' }}>
                 <span style={{ color: '#8b94a7' }}>Reference:</span>

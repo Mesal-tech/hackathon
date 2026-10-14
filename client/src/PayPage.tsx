@@ -53,7 +53,6 @@ export default function PayPage({ token }: { token: string }) {
 
   return (
     <>
-      <div className="ambient-glow" />
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
         <div className="glass-panel" style={{ padding: '32px', width: '100%', maxWidth: '440px' }}>
           {loading && <p style={{ color: 'var(--text-muted)' }}>Loading your bill…</p>}

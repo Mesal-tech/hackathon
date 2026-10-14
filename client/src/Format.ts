@@ -1,9 +1,16 @@
 import type { Currency } from './api/types';
 
-/** Minor units (kobo/cents) -> display string, e.g. 75000000 -> "₦750,000.00". Display only. */
-export function formatMoney(minor: number, currency: Currency = 'NGN'): string {
+/** Minor units (kobo/cents) -> display string, e.g. 75000000 -> "₦750,000.00". Safe against NaN/null/undefined -> 0.00. */
+export function formatMoney(minor: number | undefined | null, currency: Currency = 'NGN'): string {
+  const num = Number(minor);
+  const safeMinor = Number.isFinite(num) ? num : 0;
   const locale = currency === 'NGN' ? 'en-NG' : 'en-US';
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(minor / 100);
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(safeMinor / 100);
 }
 
 /** What the user typed in a naira box ("350,000") -> kobo (35000000). Returns null if it isn't a positive number. */

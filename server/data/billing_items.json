@@ -1,0 +1,49 @@
+{
+  "NNSS": [
+    {
+      "id": "item_tuition",
+      "name": "First Term School Fees",
+      "category": "Tuition",
+      "defaultAmountMinor": 15000000,
+      "applicableGroupIds": [
+        "grp_grade_1",
+        "grp_grade_2",
+        "grp_grade_3"
+      ],
+      "groupPrices": {
+        "grp_grade_1": 12000000,
+        "grp_grade_2": 15000000,
+        "grp_grade_3": 18000000
+      }
+    },
+    {
+      "id": "item_practical",
+      "name": "Science & Lab Practicals",
+      "category": "Practicals",
+      "defaultAmountMinor": 2500000,
+      "applicableGroupIds": [
+        "grp_grade_2",
+        "grp_grade_3"
+      ]
+    },
+    {
+      "id": "item_books",
+      "name": "Curriculum Books & Uniform",
+      "category": "Materials",
+      "defaultAmountMinor": 1800000,
+      "applicableGroupIds": [
+        "grp_grade_1"
+      ]
+    },
+    {
+      "id": "item_bus",
+      "name": "School Bus & Transit",
+      "category": "Logistics",
+      "defaultAmountMinor": 3500000,
+      "applicableGroupIds": [
+        "grp_grade_1",
+        "grp_grade_2"
+      ]
+    }
+  ]
+}

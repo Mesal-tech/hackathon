@@ -49,7 +49,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             color: '#ffffff',
             borderRadius: '9999px',
             fontWeight: '600',
-            boxShadow: '0 4px 18px rgba(56, 189, 248, 0.4)',
+            boxShadow: 'none',
             border: 'none',
             fontSize: '0.92rem',
             '&:hover': {

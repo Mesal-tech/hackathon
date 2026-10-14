@@ -1,0 +1,32 @@
+{
+  "NNSS": [
+    {
+      "id": "pyr_1",
+      "name": "Adaobi Eze",
+      "identifier": "STU-2026-001",
+      "groupId": "grp_grade_1",
+      "email": "adaobi.parent@example.com"
+    },
+    {
+      "id": "pyr_2",
+      "name": "Emeka Okafor",
+      "identifier": "STU-2026-002",
+      "groupId": "grp_grade_1",
+      "email": "emeka.parent@example.com"
+    },
+    {
+      "id": "pyr_3",
+      "name": "Chinedu Bello",
+      "identifier": "STU-2026-003",
+      "groupId": "grp_grade_2",
+      "email": "chinedu.parent@example.com"
+    },
+    {
+      "id": "pyr_4",
+      "name": "Fatima Aliyu",
+      "identifier": "STU-2026-004",
+      "groupId": "grp_grade_3",
+      "email": "fatima.parent@example.com"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "NNSS": [
+    {
+      "id": "#JE-1001",
+      "orgId": "NNSS",
+      "description": "Initial Treasury Capital Allocation",
+      "sourceType": "DEPOSIT",
+      "sourceId": "seed_treasury_NNSS",
+      "debitAccount": "KORA_WALLET",
+      "creditAccount": "EQUITY",
+      "amountMinor": 5000000000,
+      "currency": "NGN",
+      "postedAt": "2026-10-14"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Receipt,
   Plus,
@@ -26,6 +27,11 @@ import {
   Send,
   Eye,
   MailCheck,
+  Upload,
+  Download,
+  FileSpreadsheet,
+  AlertCircle,
+  Phone,
 } from 'lucide-react';
 
 export interface PayerGroup {
@@ -85,9 +91,14 @@ export interface Bill {
 interface BillingManagerProps {
   baseCurrency: string;
   orgName: string;
+  onPaymentCompleted?: () => void;
 }
 
-export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, orgName }) => {
+export const BillingManager: React.FC<BillingManagerProps> = ({
+  baseCurrency,
+  orgName,
+  onPaymentCompleted,
+}) => {
   const [subTab, setSubTab] = useState<'invoices' | 'catalog' | 'payers'>('invoices');
 
   // Server state
@@ -149,6 +160,27 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
   const [newPayerName, setNewPayerName] = useState('');
   const [newPayerId, setNewPayerId] = useState('');
   const [newPayerGroupId, setNewPayerGroupId] = useState('');
+  const [newPayerEmail, setNewPayerEmail] = useState('');
+  const [newPayerPhone, setNewPayerPhone] = useState('');
+
+  // Bulk Payer states
+  const [isBulkPayerModalOpen, setIsBulkPayerModalOpen] = useState(false);
+  const [bulkParsedPayers, setBulkParsedPayers] = useState<
+    Array<{
+      name: string;
+      identifier: string;
+      email: string;
+      phone: string;
+      groupName: string;
+      groupId: string;
+      hasEmail: boolean;
+      isValid: boolean;
+    }>
+  >([]);
+  const [bulkDefaultGroupId, setBulkDefaultGroupId] = useState('');
+  const [bulkFileName, setBulkFileName] = useState('');
+  const [bulkFileError, setBulkFileError] = useState<string | null>(null);
+  const [isImportingBulk, setIsImportingBulk] = useState(false);
 
   // UI helpers
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
@@ -158,8 +190,12 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
 
   const currencySymbol = baseCurrency === 'USD' ? '$' : baseCurrency === 'GBP' ? '£' : baseCurrency === 'EUR' ? '€' : '₦';
 
-  const formatCurrency = (minor: number) => {
-    return `${currencySymbol}${(minor / 100).toLocaleString('en-US', {
+  const formatCurrency = (minor: number | undefined | null) => {
+    const num = Number(minor);
+    const safeMinor = Number.isFinite(num) ? num : 0;
+    const isNegative = safeMinor < 0;
+    const abs = Math.abs(safeMinor) / 100;
+    return `${isNegative ? '-' : ''}${currencySymbol}${abs.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
@@ -222,27 +258,9 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
         prev.map((b) => (b.id === billId ? { ...b, status: 'PAID', paidAt: new Date().toISOString() } : b))
       );
       showToast('Bill marked as PAID.');
+      onPaymentCompleted?.();
     } catch {
       showToast('Error updating status.');
-    }
-  };
-
-  const handleLoadTemplate = async (template: 'SCHOOL' | 'HOSPITAL' | 'COMPANY' | 'EMPTY') => {
-    try {
-      const res = await fetch('/api/v1/billing/template', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer clerk_token', 'x-org-id': orgName },
-        body: JSON.stringify({ template }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setGroups(data.groups || []);
-        setItems(data.items || []);
-        setPayers(data.payers || []);
-        showToast(`Loaded ${template} preset template!`);
-      }
-    } catch {
-      showToast('Template load failed.');
     }
   };
 
@@ -260,11 +278,11 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           prev.map((b) =>
             b.id === billId
               ? {
-                  ...b,
-                  sentAt: data.bill?.sentAt || new Date().toISOString(),
-                  sentCount: (b.sentCount || 0) + 1,
-                  payerEmail: data.bill?.payerEmail || b.payerEmail,
-                }
+                ...b,
+                sentAt: data.bill?.sentAt || new Date().toISOString(),
+                sentCount: (b.sentCount || 0) + 1,
+                payerEmail: data.bill?.payerEmail || b.payerEmail,
+              }
               : b
           )
         );
@@ -443,8 +461,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
         g.customItemPrices?.[it.id] !== undefined
           ? g.customItemPrices[it.id]
           : it.groupPrices?.[g.id] !== undefined
-          ? it.groupPrices[g.id]
-          : it.defaultAmountMinor;
+            ? it.groupPrices[g.id]
+            : it.defaultAmountMinor;
       initialAmounts[it.id] = (currentPriceMinor / 100).toString();
     }
     setPricingItemAmounts(initialAmounts);
@@ -574,6 +592,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           name: newPayerName.trim(),
           identifier: newPayerId.trim(),
           groupId: newPayerGroupId,
+          email: newPayerEmail.trim() || undefined,
+          phone: newPayerPhone.trim() || undefined,
         }),
       });
       if (res.ok) {
@@ -581,11 +601,215 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
         setPayers([...payers, data.payer]);
         setNewPayerName('');
         setNewPayerId('');
+        setNewPayerEmail('');
+        setNewPayerPhone('');
         setIsPayerModalOpen(false);
         showToast('Payer enrolled successfully');
       }
     } catch {
       showToast('Failed to add payer');
+    }
+  };
+
+  // Handle bulk file selection and parsing (.csv, .xlsx, .xls)
+  const handleBulkFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFileName(file.name);
+    setBulkFileError(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const buffer = evt.target?.result;
+        if (!buffer) return;
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          setBulkFileError('Spreadsheet does not contain any sheets.');
+          return;
+        }
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+
+        if (rawRows.length === 0) {
+          setBulkFileError('Spreadsheet is empty. Please add payer records.');
+          return;
+        }
+
+        const parsed = rawRows.map((row, idx) => {
+          const normalized: Record<string, string> = {};
+          for (const key of Object.keys(row)) {
+            normalized[key.trim().toLowerCase()] = String(row[key] ?? '').trim();
+          }
+
+          const name =
+            normalized['name'] ||
+            normalized['full name'] ||
+            normalized['fullname'] ||
+            normalized['student name'] ||
+            normalized['payer name'] ||
+            normalized['payer'] ||
+            normalized['customer'] ||
+            normalized['client'] ||
+            '';
+
+          const identifier =
+            normalized['identifier'] ||
+            normalized['id'] ||
+            normalized['reg no'] ||
+            normalized['reg_no'] ||
+            normalized['reg number'] ||
+            normalized['registration number'] ||
+            normalized['student id'] ||
+            normalized['matric no'] ||
+            normalized['code'] ||
+            `ID-${Date.now().toString().slice(-4)}-${idx + 1}`;
+
+          const email =
+            normalized['email'] ||
+            normalized['email address'] ||
+            normalized['e-mail'] ||
+            normalized['mail'] ||
+            normalized['parent email'] ||
+            normalized['contact email'] ||
+            '';
+
+          const phone =
+            normalized['phone'] ||
+            normalized['phone number'] ||
+            normalized['telephone'] ||
+            normalized['mobile'] ||
+            normalized['contact'] ||
+            normalized['gsm'] ||
+            '';
+
+          const groupVal =
+            normalized['group'] ||
+            normalized['group name'] ||
+            normalized['cohort'] ||
+            normalized['class'] ||
+            normalized['grade'] ||
+            normalized['department'] ||
+            normalized['category'] ||
+            '';
+
+          const matchedGroup = groups.find(
+            (g) =>
+              g.name.toLowerCase() === groupVal.toLowerCase() ||
+              (g.code && g.code.toLowerCase() === groupVal.toLowerCase()) ||
+              g.id === groupVal
+          );
+
+          return {
+            name,
+            identifier,
+            email,
+            phone,
+            groupName: matchedGroup?.name || groupVal,
+            groupId: matchedGroup?.id || '',
+            hasEmail: Boolean(email && email.includes('@')),
+            isValid: Boolean(name),
+          };
+        });
+
+        const validList = parsed.filter((p) => p.isValid);
+        if (validList.length === 0) {
+          setBulkFileError('Could not find any rows with valid names. Ensure your sheet has a "Name" or "Full Name" column.');
+          return;
+        }
+
+        setBulkParsedPayers(validList);
+      } catch (err: any) {
+        setBulkFileError(`Failed to parse file: ${err.message || 'Invalid format'}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Download sample template (Excel or CSV)
+  const handleDownloadSampleTemplate = (format: 'xlsx' | 'csv') => {
+    const sampleData = [
+      {
+        'Full Name': 'Adaobi Okonkwo',
+        'Identifier': 'STU-2026-001',
+        'Email': 'adaobi.okonkwo@example.com',
+        'Phone': '+234 803 123 4567',
+        'Cohort / Group': groups[0]?.name || 'Primary 1',
+      },
+      {
+        'Full Name': 'Emeka Adeleke',
+        'Identifier': 'STU-2026-002',
+        'Email': 'emeka.adeleke@example.com',
+        'Phone': '+234 802 987 6543',
+        'Cohort / Group': groups[0]?.name || 'Primary 1',
+      },
+      {
+        'Full Name': 'Fatima Al-Hassan',
+        'Identifier': 'STU-2026-003',
+        'Email': 'fatima.alhassan@example.com',
+        'Phone': '+234 814 555 7890',
+        'Cohort / Group': groups[1]?.name || groups[0]?.name || 'Primary 2',
+      },
+      {
+        'Full Name': 'Chukwuma Eze',
+        'Identifier': 'STU-2026-004',
+        'Email': 'chukwuma.eze@example.com',
+        'Phone': '+234 701 222 3344',
+        'Cohort / Group': groups[1]?.name || groups[0]?.name || 'Primary 2',
+      },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Payers');
+
+    if (format === 'csv') {
+      XLSX.writeFile(workbook, 'payers_bulk_template.csv', { bookType: 'csv' });
+    } else {
+      XLSX.writeFile(workbook, 'payers_bulk_template.xlsx', { bookType: 'xlsx' });
+    }
+  };
+
+  // Confirm and save bulk payers to server
+  const handleConfirmBulkImport = async () => {
+    if (bulkParsedPayers.length === 0) return;
+    setIsImportingBulk(true);
+
+    const fallbackGroupId = bulkDefaultGroupId || groups[0]?.id || 'default_group';
+
+    try {
+      const res = await fetch('/api/v1/billing/payers/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer clerk_token', 'x-org-id': orgName },
+        body: JSON.stringify({
+          payers: bulkParsedPayers.map((p) => ({
+            name: p.name,
+            identifier: p.identifier,
+            email: p.email || undefined,
+            phone: p.phone || undefined,
+            groupId: p.groupId || fallbackGroupId,
+            groupName: p.groupName || undefined,
+          })),
+          defaultGroupId: fallbackGroupId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPayers([...payers, ...data.payers]);
+        setIsBulkPayerModalOpen(false);
+        setBulkParsedPayers([]);
+        setBulkFileName('');
+        showToast(`Successfully enrolled ${data.count} payers into directory!`);
+      } else {
+        const err = await res.json().catch(() => null);
+        showToast(err?.message || 'Failed to import payers');
+      }
+    } catch {
+      showToast('Network error during bulk import');
+    } finally {
+      setIsImportingBulk(false);
     }
   };
 
@@ -700,7 +924,87 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           VIEW 1: INVOICES
           ========================================================================= */}
       {subTab === 'invoices' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Invoice Telemetry KPI Row */}
+          {(() => {
+            const totalInvoiced = bills.reduce((sum, b) => sum + (b.totalAmountMinor || 0), 0);
+            const totalCollected = bills
+              .filter((b) => b.status === 'PAID')
+              .reduce((sum, b) => sum + (b.totalAmountMinor || 0), 0);
+            const pendingAmount = totalInvoiced - totalCollected;
+            const paidCount = bills.filter((b) => b.status === 'PAID').length;
+            const settlementRate = totalInvoiced > 0 ? Math.round((totalCollected / totalInvoiced) * 100) : 0;
+
+            return (
+              <section
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px',
+                }}
+              >
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ color: '#8b94a7', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.04em' }}>
+                      TOTAL INVOICED
+                    </span>
+                    <span className="badge badge-neutral">{bills.length} Invoices</span>
+                  </div>
+                  <div className="mono-figure" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginBottom: '4px' }}>
+                    {formatCurrency(totalInvoiced)}
+                  </div>
+                  <p style={{ color: '#8b94a7', fontSize: '0.78rem', margin: 0 }}>
+                    Gross billed across all cohorts
+                  </p>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ color: '#8b94a7', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.04em' }}>
+                      COLLECTED REVENUE
+                    </span>
+                    <span className="badge badge-emerald">Settled</span>
+                  </div>
+                  <div className="mono-figure" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#34d399', marginBottom: '4px' }}>
+                    {formatCurrency(totalCollected)}
+                  </div>
+                  <p style={{ color: '#8b94a7', fontSize: '0.78rem', margin: 0 }}>
+                    {paidCount} settled payments received
+                  </p>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ color: '#8b94a7', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.04em' }}>
+                      OUTSTANDING BALANCE
+                    </span>
+                    <span className="badge badge-amber">Pending</span>
+                  </div>
+                  <div className="mono-figure" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#fbbf24', marginBottom: '4px' }}>
+                    {formatCurrency(pendingAmount)}
+                  </div>
+                  <p style={{ color: '#8b94a7', fontSize: '0.78rem', margin: 0 }}>
+                    {bills.length - paidCount} pending payment links
+                  </p>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ color: '#8b94a7', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.04em' }}>
+                      COLLECTION RATE
+                    </span>
+                    <span className="badge badge-cyan">{settlementRate}%</span>
+                  </div>
+                  <div className="mono-figure" style={{ fontSize: '1.75rem', fontWeight: 700, color: '#38bdf8', marginBottom: '4px' }}>
+                    {settlementRate}%
+                  </div>
+                  <p style={{ color: '#8b94a7', fontSize: '0.78rem', margin: 0 }}>
+                    Settled vs gross invoiced
+                  </p>
+                </div>
+              </section>
+            );
+          })()}
           {/* Filters Bar */}
           <div
             style={{
@@ -739,35 +1043,6 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                   ))}
                 </select>
               )}
-            </div>
-
-            {/* Quick Template Switcher Note */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', color: '#8b94a7' }}>Presets:</span>
-              <button
-                type="button"
-                onClick={() => handleLoadTemplate('SCHOOL')}
-                className="btn btn-secondary"
-                style={{ padding: '4px 10px', fontSize: '0.74rem' }}
-              >
-                School
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLoadTemplate('HOSPITAL')}
-                className="btn btn-secondary"
-                style={{ padding: '4px 10px', fontSize: '0.74rem' }}
-              >
-                Hospital
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLoadTemplate('COMPANY')}
-                className="btn btn-secondary"
-                style={{ padding: '4px 10px', fontSize: '0.74rem' }}
-              >
-                Company
-              </button>
             </div>
           </div>
 
@@ -1062,8 +1337,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                     g.customItemPrices?.[it.id] !== undefined
                       ? g.customItemPrices[it.id]
                       : it.groupPrices?.[g.id] !== undefined
-                      ? it.groupPrices[g.id]
-                      : it.defaultAmountMinor;
+                        ? it.groupPrices[g.id]
+                        : it.defaultAmountMinor;
                   return sum + price;
                 }, 0);
 
@@ -1099,8 +1374,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                                 g.customItemPrices?.[it.id] !== undefined
                                   ? g.customItemPrices[it.id]
                                   : it.groupPrices?.[g.id] !== undefined
-                                  ? it.groupPrices[g.id]
-                                  : it.defaultAmountMinor;
+                                    ? it.groupPrices[g.id]
+                                    : it.defaultAmountMinor;
                               return (
                                 <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem' }}>
                                   <span style={{ color: '#cbd5e1' }}>{it.name}</span>
@@ -1156,9 +1431,27 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                   Students, patients, or clients registered to receive invoices
                 </p>
               </div>
-              <button className="btn btn-primary" onClick={() => setIsPayerModalOpen(true)} style={{ fontSize: '0.82rem' }}>
-                <UserPlus size={14} /> Enroll Payer
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setIsBulkPayerModalOpen(true);
+                    setBulkParsedPayers([]);
+                    setBulkFileName('');
+                    setBulkFileError(null);
+                    if (groups.length > 0 && !bulkDefaultGroupId) {
+                      setBulkDefaultGroupId(groups[0].id);
+                    }
+                  }}
+                  style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Upload size={14} /> Bulk Import (CSV / Excel)
+                </button>
+                <button className="btn btn-primary" onClick={() => setIsPayerModalOpen(true)} style={{ fontSize: '0.82rem' }}>
+                  <UserPlus size={14} /> Enroll Payer
+                </button>
+              </div>
             </div>
 
             <div style={{ overflowX: 'auto', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1169,6 +1462,7 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                     <th>NAME</th>
                     <th>ASSIGNED GROUP</th>
                     <th>CONTACT EMAIL</th>
+                    <th>PHONE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1181,7 +1475,26 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                         <td>
                           <span className="badge badge-neutral">{grp?.name || p.groupId}</span>
                         </td>
-                        <td style={{ color: '#8b94a7', fontSize: '0.82rem' }}>{p.email || '—'}</td>
+                        <td style={{ color: p.email ? '#f8fafc' : '#64748b', fontSize: '0.82rem' }}>
+                          {p.email ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <Mail size={12} style={{ color: '#38bdf8' }} /> {p.email}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#f59e0b', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <AlertCircle size={11} /> No email
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ color: '#8b94a7', fontSize: '0.82rem' }}>
+                          {p.phone ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <Phone size={12} style={{ color: '#a78bfa' }} /> {p.phone}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1196,39 +1509,29 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 1: CREATE SINGLE INVOICE
           ========================================================================= */}
       {isSingleModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsSingleModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsSingleModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '540px', padding: '28px', background: '#141720' }}
+            className="modal-container"
+            style={{ maxWidth: '560px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                Create Individual Invoice
-              </h3>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-header-title">Create Individual Invoice</h3>
+                <p className="modal-header-subtitle">Issue a bespoke tokenized invoice to a student or parent</p>
+              </div>
               <button
                 type="button"
+                className="modal-close-btn"
                 onClick={() => setIsSingleModalOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer' }}
+                title="Close"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateSingleBill} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleCreateSingleBill} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
               <div>
                 <label className="label-obsidian">Select Payer Mode</label>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
@@ -1373,7 +1676,9 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                 </div>
               </label>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+              </div>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsSingleModalOpen(false)}>
                   Cancel
                 </button>
@@ -1390,44 +1695,31 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 2: BATCH BILL COHORT / GROUP
           ========================================================================= */}
       {isBatchModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsBatchModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsBatchModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '560px', padding: '28px', background: '#141720' }}
+            className="modal-container"
+            style={{ maxWidth: '580px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="modal-header">
               <div>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                  Batch Bill Cohort / Class
-                </h3>
-                <p style={{ color: '#8b94a7', fontSize: '0.8rem', margin: '2px 0 0' }}>
+                <h3 className="modal-header-title">Batch Bill Cohort / Class</h3>
+                <p className="modal-header-subtitle">
                   Generate tokenized invoices for every student/payer in a group
                 </p>
               </div>
               <button
                 type="button"
+                className="modal-close-btn"
                 onClick={() => setIsBatchModalOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer' }}
+                title="Close"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleBatchGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleBatchGenerate} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
               <div>
                 <label className="label-obsidian">Target Group / Class</label>
                 <select
@@ -1473,8 +1765,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                       selectedGroup?.customItemPrices?.[it.id] !== undefined
                         ? selectedGroup.customItemPrices[it.id]
                         : it.groupPrices?.[batchGroupId] !== undefined
-                        ? it.groupPrices[batchGroupId]
-                        : it.defaultAmountMinor;
+                          ? it.groupPrices[batchGroupId]
+                          : it.defaultAmountMinor;
                     const hasCustomPrice =
                       selectedGroup?.customItemPrices?.[it.id] !== undefined ||
                       it.groupPrices?.[batchGroupId] !== undefined;
@@ -1534,8 +1826,8 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                     selectedGroup.customItemPrices?.[it.id] !== undefined
                       ? selectedGroup.customItemPrices[it.id]
                       : it.groupPrices?.[batchGroupId] !== undefined
-                      ? it.groupPrices[batchGroupId]
-                      : it.defaultAmountMinor;
+                        ? it.groupPrices[batchGroupId]
+                        : it.defaultAmountMinor;
                   return sum + price;
                 }, 0);
                 const cohortStudentCount = payers.filter((p) => p.groupId === batchGroupId).length;
@@ -1598,7 +1890,9 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                 </div>
               </label>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+              </div>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsBatchModalOpen(false)}>
                   Cancel
                 </button>
@@ -1615,51 +1909,53 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 3: ADD GROUP / COHORT
           ========================================================================= */}
       {isGroupModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsGroupModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsGroupModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '440px', padding: '28px', background: '#141720' }}
+            className="modal-container"
+            style={{ maxWidth: '460px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc', marginBottom: '16px' }}>
-              Add Payer Cohort / Group
-            </h3>
-            <form onSubmit={handleAddGroup} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="modal-header">
               <div>
-                <label className="label-obsidian">Group Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Grade 1, Ward B, Block A"
-                  className="input-obsidian"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                />
+                <h3 className="modal-header-title">Add Payer Cohort / Group</h3>
+                <p className="modal-header-subtitle">Create a class, department, or student level segment</p>
               </div>
-              <div>
-                <label className="label-obsidian">Code / Abbreviation</label>
-                <input
-                  type="text"
-                  placeholder="e.g. G1, WB, BLK-A"
-                  className="input-obsidian"
-                  value={newGroupCode}
-                  onChange={(e) => setNewGroupCode(e.target.value)}
-                />
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setIsGroupModalOpen(false)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddGroup} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
+                <div>
+                  <label className="label-obsidian">Group Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Grade 1, Ward B, Block A"
+                    className="input-obsidian"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label-obsidian">Code / Abbreviation</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. G1, WB, BLK-A"
+                    className="input-obsidian"
+                    value={newGroupCode}
+                    onChange={(e) => setNewGroupCode(e.target.value)}
+                  />
+                </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsGroupModalOpen(false)}>
                   Cancel
                 </button>
@@ -1676,64 +1972,66 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 4: ADD FEE ITEM
           ========================================================================= */}
       {isItemModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsItemModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsItemModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '440px', padding: '28px', background: '#141720' }}
+            className="modal-container"
+            style={{ maxWidth: '480px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc', marginBottom: '16px' }}>
-              Add Fee Item to Catalog
-            </h3>
-            <form onSubmit={handleAddItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="modal-header">
               <div>
-                <label className="label-obsidian">Fee / Service Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Science Laboratory Practicals"
-                  className="input-obsidian"
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                />
+                <h3 className="modal-header-title">Add Fee Item to Catalog</h3>
+                <p className="modal-header-subtitle">Define an assessment, fee, or service charge</p>
               </div>
-              <div>
-                <label className="label-obsidian">Category</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Tuition, Lab, Materials, Medical"
-                  className="input-obsidian"
-                  value={newItemCategory}
-                  onChange={(e) => setNewItemCategory(e.target.value)}
-                />
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setIsItemModalOpen(false)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddItem} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
+                <div>
+                  <label className="label-obsidian">Fee / Service Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Science Laboratory Practicals"
+                    className="input-obsidian"
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label-obsidian">Category</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Tuition, Lab, Materials, Medical"
+                    className="input-obsidian"
+                    value={newItemCategory}
+                    onChange={(e) => setNewItemCategory(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label-obsidian">Standard Amount ({currencySymbol})</label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0"
+                    placeholder="25000"
+                    className="input-obsidian"
+                    value={newItemAmount}
+                    onChange={(e) => setNewItemAmount(e.target.value)}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="label-obsidian">Standard Amount ({currencySymbol})</label>
-                <input
-                  type="number"
-                  required
-                  step="0.01"
-                  min="0"
-                  placeholder="25000"
-                  className="input-obsidian"
-                  value={newItemAmount}
-                  onChange={(e) => setNewItemAmount(e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsItemModalOpen(false)}>
                   Cancel
                 </button>
@@ -1750,68 +2048,99 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 5: ENROLL PAYER
           ========================================================================= */}
       {isPayerModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsPayerModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsPayerModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '440px', padding: '28px', background: '#141720' }}
+            className="modal-container"
+            style={{ maxWidth: '500px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc', marginBottom: '16px' }}>
-              Enroll Payer / Student
-            </h3>
-            <form onSubmit={handleAddPayer} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="modal-header">
               <div>
-                <label className="label-obsidian">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Adaobi Eze"
-                  className="input-obsidian"
-                  value={newPayerName}
-                  onChange={(e) => setNewPayerName(e.target.value)}
-                />
+                <h3 className="modal-header-title">Enroll Payer / Student</h3>
+                <p className="modal-header-subtitle">
+                  Register a payer to issue invoices and enable Korapay online payments
+                </p>
               </div>
-              <div>
-                <label className="label-obsidian">Unique Identifier / ID</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. STU-2026-001 or PAT-102"
-                  className="input-obsidian"
-                  value={newPayerId}
-                  onChange={(e) => setNewPayerId(e.target.value)}
-                />
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setIsPayerModalOpen(false)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddPayer} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
+                <div>
+                  <label className="label-obsidian">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Adaobi Eze"
+                    className="input-obsidian"
+                    value={newPayerName}
+                    onChange={(e) => setNewPayerName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="label-obsidian">Unique Identifier / ID</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. STU-2026-001 or PAT-102"
+                    className="input-obsidian"
+                    value={newPayerId}
+                    onChange={(e) => setNewPayerId(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label className="label-obsidian" style={{ margin: 0 }}>Email Address</label>
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. adaobi.eze@example.com"
+                    className="input-obsidian"
+                    value={newPayerEmail}
+                    onChange={(e) => setNewPayerEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="label-obsidian">Phone Number (Optional)</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +234 803 123 4567"
+                    className="input-obsidian"
+                    value={newPayerPhone}
+                    onChange={(e) => setNewPayerPhone(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="label-obsidian">Assign to Group / Cohort</label>
+                  <select
+                    required
+                    className="select-obsidian"
+                    value={newPayerGroupId}
+                    onChange={(e) => setNewPayerGroupId(e.target.value)}
+                  >
+                    <option value="">Select Group...</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="label-obsidian">Assign to Group / Cohort</label>
-                <select
-                  required
-                  className="select-obsidian"
-                  value={newPayerGroupId}
-                  onChange={(e) => setNewPayerGroupId(e.target.value)}
-                >
-                  <option value="">Select Group...</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsPayerModalOpen(false)}>
                   Cancel
                 </button>
@@ -1828,47 +2157,34 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL 6: CONFIGURE COHORT FEES & PRICING
           ========================================================================= */}
       {isCohortPricingModalOpen && activePricingGroup && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsCohortPricingModalOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsCohortPricingModalOpen(false)}>
           <div
-            className="glass-panel"
-            style={{ width: '100%', maxWidth: '580px', padding: '28px', background: '#141720', maxHeight: '90vh', overflowY: 'auto' }}
+            className="modal-container"
+            style={{ maxWidth: '600px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
+            <div className="modal-header">
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                   <span className="badge badge-cyan">{activePricingGroup.code || 'GRP'}</span>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                    Configure Fees for {activePricingGroup.name}
-                  </h3>
+                  <h3 className="modal-header-title">Configure Fees for {activePricingGroup.name}</h3>
                 </div>
-                <p style={{ color: '#8b94a7', fontSize: '0.82rem', margin: 0 }}>
+                <p className="modal-header-subtitle">
                   Select which fees apply to this cohort and customize the exact amounts students in this cohort owe
                 </p>
               </div>
               <button
                 type="button"
+                className="modal-close-btn"
                 onClick={() => setIsCohortPricingModalOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer' }}
+                title="Close"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveCohortPricing} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleSaveCohortPricing} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {items.length === 0 ? (
                   <div style={{ padding: '24px', textAlign: 'center', color: '#8b94a7', fontSize: '0.85rem' }}>
@@ -1978,7 +2294,9 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+              </div>
+
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsCohortPricingModalOpen(false)}>
                   Cancel
                 </button>
@@ -1995,56 +2313,21 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
           MODAL: EMAIL PREVIEW
           ========================================================================= */}
       {isEmailPreviewOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.8)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 110,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={() => setIsEmailPreviewOpen(false)}
-        >
+        <div className="modal-backdrop" onClick={() => setIsEmailPreviewOpen(false)}>
           <div
-            className="glass-panel"
-            style={{
-              width: '100%',
-              maxWidth: '680px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: '0',
-              background: '#141720',
-              borderRadius: '20px',
-              overflow: 'hidden',
-              boxShadow: '0 25px 70px rgba(0,0,0,0.8)',
-            }}
+            className="modal-container"
+            style={{ maxWidth: '680px' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div
-              style={{
-                padding: '20px 24px',
-                borderBottom: '1px solid #282d3d',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                background: '#191c26',
-              }}
-            >
+            <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Mail size={18} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
-                    Invoice Email Preview
-                  </h3>
-                  <div style={{ fontSize: '0.78rem', color: '#8b94a7' }}>
+                  <h3 className="modal-header-title">Invoice Email Preview</h3>
+                  <div className="modal-header-subtitle">
                     {emailPreviewData?.bill ? `Recipient: ${emailPreviewData.bill.payerName} (${emailPreviewData.bill.payerEmail || 'Email pending'})` : 'Loading...'}
                   </div>
                 </div>
@@ -2070,17 +2353,18 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                 )}
                 <button
                   type="button"
+                  className="modal-close-btn"
                   onClick={() => setIsEmailPreviewOpen(false)}
-                  style={{ background: 'none', border: 'none', color: '#8b94a7', cursor: 'pointer', padding: '4px' }}
+                  title="Close"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
             </div>
 
             {/* Email Meta bar */}
             {emailPreviewData && (
-              <div style={{ padding: '12px 24px', background: '#12141c', borderBottom: '1px solid #282d3d', fontSize: '0.82rem', color: '#8b94a7' }}>
+              <div style={{ padding: '12px 24px', background: '#12141c', borderBottom: '1px solid #282d3d', fontSize: '0.82rem', color: '#8b94a7', flexShrink: 0 }}>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
                   <span style={{ fontWeight: 600, color: '#64748b' }}>Subject:</span>
                   <span style={{ color: '#f8fafc', fontWeight: 500 }}>{emailPreviewData.subject}</span>
@@ -2089,7 +2373,7 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
             )}
 
             {/* Email Preview Frame */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#0a0d14' }}>
+            <div className="modal-body" style={{ background: '#0a0d14', padding: '20px' }}>
               {isLoadingEmailPreview ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8b94a7' }}>
                   <div className="spinner" style={{ margin: '0 auto 14px' }} />
@@ -2112,6 +2396,232 @@ export const BillingManager: React.FC<BillingManagerProps> = ({ baseCurrency, or
                   No preview available.
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 7: BULK REGISTER PAYERS VIA SPREADSHEET (CSV / XLSX)
+          ========================================================================= */}
+      {isBulkPayerModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsBulkPayerModalOpen(false)}>
+          <div
+            className="modal-container"
+            style={{ maxWidth: '740px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="modal-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge badge-cyan" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FileSpreadsheet size={13} /> Bulk Import
+                  </span>
+                  <h3 className="modal-header-title">Bulk Register Payers</h3>
+                </div>
+                <p className="modal-header-subtitle">
+                  Import student rosters, patient registries, or customer books from CSV or Excel (.xlsx, .xls) files.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setIsBulkPayerModalOpen(false)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+
+            {/* File Upload Zone */}
+            <div>
+              <label className="label-obsidian">Select Spreadsheet File</label>
+              <div
+                style={{
+                  border: '2px dashed rgba(255,255,255,0.15)',
+                  borderRadius: '12px',
+                  padding: '24px 20px',
+                  textAlign: 'center',
+                  background: 'rgba(255,255,255,0.02)',
+                  cursor: 'pointer',
+                  position: 'relative',
+                }}
+              >
+                <input
+                  type="file"
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, .xlsx, .xls"
+                  onChange={handleBulkFileUpload}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    opacity: 0,
+                    cursor: 'pointer',
+                    width: '100%',
+                    height: '100%',
+                  }}
+                />
+                <Upload size={28} style={{ color: '#38bdf8', margin: '0 auto 8px' }} />
+                <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#f8fafc', marginBottom: '4px' }}>
+                  {bulkFileName ? bulkFileName : 'Drop your spreadsheet here or click to browse'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#8b94a7' }}>
+                  Supports CSV, XLSX, and XLS formats (automatic column detection)
+                </div>
+              </div>
+
+              {bulkFileError && (
+                <div style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle size={14} /> {bulkFileError}
+                </div>
+              )}
+            </div>
+
+            {/* Options & Preview if parsed */}
+            {bulkParsedPayers.length > 0 && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', alignItems: 'end' }}>
+                  <div>
+                    <label className="label-obsidian">Default Cohort / Group (fallback if not specified in row)</label>
+                    <select
+                      className="select-obsidian"
+                      value={bulkDefaultGroupId}
+                      onChange={(e) => setBulkDefaultGroupId(e.target.value)}
+                    >
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div
+                      style={{
+                        flex: 1,
+                        background: '#0d1017',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.72rem', color: '#8b94a7' }}>Total Found</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
+                        {bulkParsedPayers.length}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        background: '#0d1017',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.72rem', color: '#8b94a7' }}>With Email</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' }}>
+                        {bulkParsedPayers.filter((p) => p.hasEmail).length}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Preview Table */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label className="label-obsidian" style={{ margin: 0 }}>
+                      Preview Records ({bulkParsedPayers.length})
+                    </label>
+                    <span style={{ fontSize: '0.75rem', color: '#8b94a7' }}>
+                      Showing first {Math.min(bulkParsedPayers.length, 100)} rows
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: '#0a0d14',
+                    }}
+                  >
+                    <table className="table-obsidian" style={{ fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr>
+                          <th>NAME</th>
+                          <th>ID / IDENTIFIER</th>
+                          <th>EMAIL (KORAPAY)</th>
+                          <th>PHONE</th>
+                          <th>COHORT</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkParsedPayers.slice(0, 100).map((row, idx) => (
+                          <tr key={idx}>
+                            <td style={{ fontWeight: 600, color: '#f8fafc' }}>{row.name}</td>
+                            <td className="mono-figure" style={{ color: '#38bdf8' }}>{row.identifier}</td>
+                            <td>
+                              {row.hasEmail ? (
+                                <span style={{ color: '#f8fafc' }}>{row.email}</span>
+                              ) : (
+                                <span style={{ color: '#f59e0b', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <AlertCircle size={10} /> Missing email
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ color: '#8b94a7' }}>{row.phone || '—'}</td>
+                            <td>
+                              <span className="badge badge-neutral">
+                                {row.groupName || groups.find((g) => g.id === bulkDefaultGroupId)?.name || 'Default'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
+            </div>
+
+            {/* Modal Actions */}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsBulkPayerModalOpen(false)}
+                disabled={isImportingBulk}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmBulkImport}
+                disabled={bulkParsedPayers.length === 0 || isImportingBulk}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {isImportingBulk ? (
+                  <>
+                    <div className="spinner" style={{ width: 14, height: 14 }} />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} />
+                    Confirm & Import {bulkParsedPayers.length > 0 ? `(${bulkParsedPayers.length})` : ''} Payers
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

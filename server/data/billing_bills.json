@@ -1,0 +1,33 @@
+{
+  "NNSS": [
+    {
+      "id": "bill_1791971815586",
+      "orgId": "NNSS",
+      "token": "tok_34c8437c5f616be5",
+      "payerId": "pyr_1",
+      "payerName": "Adaobi Eze",
+      "payerEmail": "adaobi.parent@example.com",
+      "groupId": "grp_grade_1",
+      "groupName": "Grade 1",
+      "items": [
+        {
+          "itemId": "item_tuition",
+          "description": "First Term School Fees",
+          "amountMinor": 12000000
+        },
+        {
+          "itemId": "item_books",
+          "description": "Curriculum Books & Uniform",
+          "amountMinor": 1800000
+        }
+      ],
+      "totalAmountMinor": 13800000,
+      "currency": "NGN",
+      "status": "ISSUED",
+      "dueDate": "2026-10-28",
+      "createdAt": "2026-10-14T09:56:55.592Z",
+      "sentAt": "2026-10-14T09:56:55.592Z",
+      "sentCount": 1
+    }
+  ]
+}
